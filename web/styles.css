@@ -113,14 +113,17 @@ canvas {
   font-size: 0.9rem;
 }
 
+
 .controls.secondary select,
 .camera-config select {
+
   padding: 0.35rem 0.6rem;
   border-radius: 8px;
   border: 1px solid #d7dce5;
   background: #fff;
   color: var(--text);
 }
+
 
 .camera-config {
   display: flex;
@@ -169,6 +172,8 @@ canvas {
     align-items: flex-start;
   }
 }
+
+=======
 
 .hint {
   color: var(--muted);
