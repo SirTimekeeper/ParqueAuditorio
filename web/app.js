@@ -35,6 +35,10 @@ const resolutionSelect = document.getElementById('resolutionSelect');
 const fpsSelect = document.getElementById('fpsSelect');
 const cameraSelect = document.getElementById('cameraSelect');
 
+const activateCameraBtn = document.getElementById('activateCamera');
+const refreshCamerasBtn = document.getElementById('refreshCameras');
+
+
 const tracker = new SimpleTracker();
 
 let config = { ...defaultConfig };
@@ -282,10 +286,17 @@ const updateCameraSelect = async () => {
     { value: 'environment', label: 'Traseira' }
   ].forEach((item) => cameraSelect.appendChild(buildCameraOption(item.value, item.label)));
 
-  cameras.forEach((camera, index) => {
-    const label = camera.label || `Câmara ${index + 1}`;
-    cameraSelect.appendChild(buildCameraOption(`device:${camera.deviceId}`, label));
-  });
+  if (cameras.length === 0) {
+    const emptyOption = buildCameraOption('none', 'Sem câmaras detectadas');
+    emptyOption.disabled = true;
+    cameraSelect.appendChild(emptyOption);
+  } else {
+    cameras.forEach((camera, index) => {
+      const label = camera.label || `Câmara ${index + 1}`;
+      cameraSelect.appendChild(buildCameraOption(`device:${camera.deviceId}`, label));
+    });
+  }
+
 
   const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null };
   let targetValue = 'auto';
@@ -502,6 +513,18 @@ priorityAddBtn.addEventListener('click', () => {
 
 resolutionSelect.addEventListener('change', async () => {
   if (video.srcObject) {
+if (activateCameraBtn) {
+  activateCameraBtn.addEventListener('click', async () => {
+    await startCamera();
+  });
+}
+
+if (refreshCamerasBtn) {
+  refreshCamerasBtn.addEventListener('click', async () => {
+    await updateCameraSelect();
+  });
+}
+
     await startCamera();
   }
 });
@@ -519,6 +542,14 @@ cameraSelect.addEventListener('change', async () => {
   if (video.srcObject || value !== 'auto') {
     await startCamera();
   }
+});
+
+activateCameraBtn.addEventListener('click', async () => {
+  await startCamera();
+});
+
+refreshCamerasBtn.addEventListener('click', async () => {
+  await updateCameraSelect();
 });
 
 window.addEventListener('resize', configureCanvas);
