@@ -35,6 +35,9 @@ const resolutionSelect = document.getElementById('resolutionSelect');
 const fpsSelect = document.getElementById('fpsSelect');
 const cameraSelect = document.getElementById('cameraSelect');
 
+const refreshCamerasBtn = document.getElementById('refreshCameras');
+
+
 const tracker = new SimpleTracker();
 
 let config = { ...defaultConfig };
@@ -502,6 +505,7 @@ priorityAddBtn.addEventListener('click', () => {
 
 resolutionSelect.addEventListener('change', async () => {
   if (video.srcObject) {
+
     await startCamera();
   }
 });
@@ -519,6 +523,10 @@ cameraSelect.addEventListener('change', async () => {
   if (video.srcObject || value !== 'auto') {
     await startCamera();
   }
+});
+
+refreshCamerasBtn.addEventListener('click', async () => {
+  await updateCameraSelect();
 });
 
 window.addEventListener('resize', configureCanvas);

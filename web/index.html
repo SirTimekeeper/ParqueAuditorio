@@ -31,6 +31,23 @@
         <button id="toggleCounting">Iniciar Contagem</button>
         <button id="resetCounts" class="danger">Reset Contagens</button>
       </div>
+      <div class="camera-config">
+        <div>
+          <h3>Configurar Câmara</h3>
+          <p class="note">Escolha a câmara para definir as linhas de entrada e saída.</p>
+        </div>
+        <div class="camera-controls">
+          <label>
+            Câmara
+            <select id="cameraSelect">
+              <option value="auto">Automática</option>
+              <option value="user">Frontal</option>
+              <option value="environment">Traseira</option>
+            </select>
+          </label>
+          <button id="refreshCameras" type="button">Atualizar lista</button>
+        </div>
+      </div>
       <div class="controls secondary">
         <label>
           Câmara
