@@ -33,6 +33,9 @@ const logList = document.getElementById('log');
 
 const resolutionSelect = document.getElementById('resolutionSelect');
 const fpsSelect = document.getElementById('fpsSelect');
+const cameraSelect = document.getElementById('cameraSelect');
+const activateCameraBtn = document.getElementById('activateCamera');
+const refreshCamerasBtn = document.getElementById('refreshCameras');
 
 const tracker = new SimpleTracker();
 
@@ -236,19 +239,88 @@ const configureCanvas = () => {
   drawOverlay();
 };
 
+const stopCamera = () => {
+  if (!video.srcObject) return;
+  const tracks = video.srcObject.getTracks();
+  tracks.forEach((track) => track.stop());
+  video.srcObject = null;
+};
+
+const getCameraConstraints = () => {
+  const width = Number(resolutionSelect.value);
+  const videoConstraints = {
+    width: { ideal: width },
+    height: { ideal: Math.round(width * 0.75) }
+  };
+  const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null };
+  if (cameraConfig.mode === 'device' && cameraConfig.deviceId) {
+    videoConstraints.deviceId = { exact: cameraConfig.deviceId };
+  } else if (cameraConfig.mode === 'user' || cameraConfig.mode === 'environment') {
+    videoConstraints.facingMode = { ideal: cameraConfig.mode };
+  }
+  return {
+    video: videoConstraints,
+    audio: false
+  };
+};
+
+const buildCameraOption = (value, label) => {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  return option;
+};
+
+const updateCameraSelect = async () => {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cameras = devices.filter((device) => device.kind === 'videoinput');
+  const availableIds = cameras.map((camera) => camera.deviceId);
+
+  cameraSelect.innerHTML = '';
+  [
+    { value: 'auto', label: 'Automática' },
+    { value: 'user', label: 'Frontal' },
+    { value: 'environment', label: 'Traseira' }
+  ].forEach((item) => cameraSelect.appendChild(buildCameraOption(item.value, item.label)));
+
+  if (cameras.length === 0) {
+    const emptyOption = buildCameraOption('none', 'Sem câmaras detectadas');
+    emptyOption.disabled = true;
+    cameraSelect.appendChild(emptyOption);
+  } else {
+    cameras.forEach((camera, index) => {
+      const label = camera.label || `Câmara ${index + 1}`;
+      cameraSelect.appendChild(buildCameraOption(`device:${camera.deviceId}`, label));
+    });
+  }
+
+  const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null };
+  let targetValue = 'auto';
+  if (cameraConfig.mode === 'device' && cameraConfig.deviceId && availableIds.includes(cameraConfig.deviceId)) {
+    targetValue = `device:${cameraConfig.deviceId}`;
+  } else if (cameraConfig.mode === 'user' || cameraConfig.mode === 'environment') {
+    targetValue = cameraConfig.mode;
+  }
+  cameraSelect.value = targetValue;
+  if (cameraSelect.value !== targetValue) {
+    cameraSelect.value = 'auto';
+  }
+
+  if (cameraConfig.mode === 'device' && cameraConfig.deviceId && !availableIds.includes(cameraConfig.deviceId)) {
+    config.camera = { mode: 'auto', deviceId: null };
+    persistConfig();
+  }
+};
+
 const startCamera = async () => {
   try {
-    const width = Number(resolutionSelect.value);
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: width },
-        height: { ideal: Math.round(width * 0.75) }
-      },
-      audio: false
-    });
+    stopCamera();
+    const stream = await navigator.mediaDevices.getUserMedia(getCameraConstraints());
     video.srcObject = stream;
     await video.play();
     configureCanvas();
+    await updateCameraSelect();
     setStatus('Câmara pronta');
   } catch (error) {
     setStatus('Erro ao aceder à câmara', true);
@@ -438,11 +510,31 @@ priorityAddBtn.addEventListener('click', () => {
 
 resolutionSelect.addEventListener('change', async () => {
   if (video.srcObject) {
-    const tracks = video.srcObject.getTracks();
-    tracks.forEach((track) => track.stop());
-    video.srcObject = null;
     await startCamera();
   }
+});
+
+cameraSelect.addEventListener('change', async () => {
+  const value = cameraSelect.value;
+  if (value.startsWith('device:')) {
+    config.camera = { mode: 'device', deviceId: value.replace('device:', '') };
+  } else if (value === 'user' || value === 'environment') {
+    config.camera = { mode: value, deviceId: null };
+  } else {
+    config.camera = { mode: 'auto', deviceId: null };
+  }
+  persistConfig();
+  if (video.srcObject || value !== 'auto') {
+    await startCamera();
+  }
+});
+
+activateCameraBtn.addEventListener('click', async () => {
+  await startCamera();
+});
+
+refreshCamerasBtn.addEventListener('click', async () => {
+  await updateCameraSelect();
 });
 
 window.addEventListener('resize', configureCanvas);
@@ -457,4 +549,9 @@ if ('serviceWorker' in navigator) {
 
 loadConfig().then(() => {
   updateCountsUI();
+  updateCameraSelect();
 });
+
+if (navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', updateCameraSelect);
+}

@@ -13,7 +13,11 @@ export const defaultConfig = {
     mrCount: 0
   },
   priorityVehicles: [],
-  log: []
+  log: [],
+  camera: {
+    mode: 'auto',
+    deviceId: null
+  }
 };
 
 export const loadLocalConfig = () => {
