@@ -34,8 +34,10 @@ const logList = document.getElementById('log');
 const resolutionSelect = document.getElementById('resolutionSelect');
 const fpsSelect = document.getElementById('fpsSelect');
 const cameraSelect = document.getElementById('cameraSelect');
+
 const activateCameraBtn = document.getElementById('activateCamera');
 const refreshCamerasBtn = document.getElementById('refreshCameras');
+
 
 const tracker = new SimpleTracker();
 
@@ -295,6 +297,7 @@ const updateCameraSelect = async () => {
     });
   }
 
+
   const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null };
   let targetValue = 'auto';
   if (cameraConfig.mode === 'device' && cameraConfig.deviceId && availableIds.includes(cameraConfig.deviceId)) {
@@ -510,6 +513,18 @@ priorityAddBtn.addEventListener('click', () => {
 
 resolutionSelect.addEventListener('change', async () => {
   if (video.srcObject) {
+if (activateCameraBtn) {
+  activateCameraBtn.addEventListener('click', async () => {
+    await startCamera();
+  });
+}
+
+if (refreshCamerasBtn) {
+  refreshCamerasBtn.addEventListener('click', async () => {
+    await updateCameraSelect();
+  });
+}
+
     await startCamera();
   }
 });
