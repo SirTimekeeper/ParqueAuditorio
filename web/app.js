@@ -14,10 +14,14 @@ const occupancyNormalEl = document.getElementById('occupancyNormal');
 const occupancyMREl = document.getElementById('occupancyMR');
 const warningFull = document.getElementById('warningFull');
 const warningMR = document.getElementById('warningMR');
+const deviceList = document.getElementById('deviceList');
+const entryLineStatus = document.getElementById('entryLineStatus');
+const exitLineStatus = document.getElementById('exitLineStatus');
 
 const setEntryLineBtn = document.getElementById('setEntryLine');
 const setExitLineBtn = document.getElementById('setExitLine');
 const setRoiBtn = document.getElementById('setRoi');
+const startPreviewBtn = document.getElementById('startPreview');
 const toggleCountingBtn = document.getElementById('toggleCounting');
 const resetCountsBtn = document.getElementById('resetCounts');
 
@@ -92,6 +96,21 @@ const addLog = (entry) => {
   config.log = [entry, ...config.log].slice(0, 40);
 };
 
+const setSelectedCamera = async (deviceId) => {
+  config.camera = { mode: 'device', deviceId };
+  persistConfig();
+  await startCamera();
+};
+
+const updateLineStatus = () => {
+  if (entryLineStatus) {
+    entryLineStatus.textContent = config.lines.entry ? 'Configurada' : 'Não definida';
+  }
+  if (exitLineStatus) {
+    exitLineStatus.textContent = config.lines.exit ? 'Configurada' : 'Não definida';
+  }
+};
+
 const updateCountsUI = () => {
   entriesEl.textContent = config.counts.entries;
   exitsEl.textContent = config.counts.exits;
@@ -141,6 +160,7 @@ const persistConfig = () => {
   saveLocalConfig(config);
   saveServerConfig(config);
   updateCountsUI();
+  updateLineStatus();
   renderPriorityList();
   renderLog();
 };
@@ -271,6 +291,61 @@ const buildCameraOption = (value, label) => {
   return option;
 };
 
+const getActiveCameraId = () => {
+  const track = video.srcObject?.getVideoTracks?.()[0];
+  return track?.getSettings?.().deviceId ?? null;
+};
+
+const renderDeviceList = (devices = []) => {
+  if (!deviceList) return;
+  deviceList.innerHTML = '';
+  if (!devices.length) {
+    const li = document.createElement('li');
+    li.className = 'list-item';
+    li.textContent = 'Nenhum dispositivo detetado.';
+    deviceList.appendChild(li);
+    return;
+  }
+
+  const activeCameraId = getActiveCameraId();
+  const labels = {
+    videoinput: 'Câmara',
+    audioinput: 'Microfone',
+    audiooutput: 'Saída áudio'
+  };
+
+  devices.forEach((device, index) => {
+    const li = document.createElement('li');
+    li.className = 'list-item';
+    const title = document.createElement('span');
+    const label = device.label || `${labels[device.kind] ?? 'Dispositivo'} ${index + 1}`;
+    title.textContent = label;
+    const meta = document.createElement('div');
+    meta.className = 'device-meta';
+    const kind = document.createElement('span');
+    kind.textContent = labels[device.kind] ?? device.kind;
+    meta.appendChild(kind);
+    li.appendChild(title);
+    li.appendChild(meta);
+    if (device.kind === 'videoinput' && device.deviceId) {
+      if (device.deviceId === activeCameraId) {
+        const badge = document.createElement('span');
+        badge.className = 'device-badge';
+        badge.textContent = 'Em uso';
+        meta.appendChild(badge);
+      }
+      const actions = document.createElement('div');
+      actions.className = 'device-actions';
+      const selectBtn = document.createElement('button');
+      selectBtn.textContent = 'Selecionar câmara';
+      selectBtn.addEventListener('click', () => setSelectedCamera(device.deviceId));
+      actions.appendChild(selectBtn);
+      li.appendChild(actions);
+    }
+    deviceList.appendChild(li);
+  });
+};
+
 const updateCameraSelect = async () => {
   if (!navigator.mediaDevices?.enumerateDevices) return;
   const devices = await navigator.mediaDevices.enumerateDevices();
@@ -310,6 +385,8 @@ const updateCameraSelect = async () => {
     config.camera = { mode: 'auto', deviceId: null };
     persistConfig();
   }
+
+  renderDeviceList(devices);
 };
 
 const startCamera = async () => {
@@ -321,6 +398,7 @@ const startCamera = async () => {
     configureCanvas();
     await updateCameraSelect();
     setStatus('Câmara pronta');
+    renderDeviceList(await navigator.mediaDevices.enumerateDevices());
   } catch (error) {
     setStatus('Erro ao aceder à câmara', true);
     alert('Não foi possível aceder à câmara. Verifique permissões ou use HTTPS/localhost.');
@@ -466,6 +544,16 @@ setRoiBtn.addEventListener('click', () => setupDrawing('roi'));
 
 toggleCountingBtn.addEventListener('click', toggleCounting);
 
+if (startPreviewBtn) {
+  startPreviewBtn.addEventListener('click', async () => {
+    try {
+      await startCamera();
+    } catch (error) {
+      console.error(error);
+    }
+  });
+}
+
 resetCountsBtn.addEventListener('click', () => {
   config.counts.entries = 0;
   config.counts.exits = 0;
@@ -550,6 +638,7 @@ if ('serviceWorker' in navigator) {
 
 loadConfig().then(() => {
   updateCountsUI();
+  updateLineStatus();
   updateCameraSelect();
 });
 
