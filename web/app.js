@@ -34,6 +34,8 @@ const logList = document.getElementById('log');
 const resolutionSelect = document.getElementById('resolutionSelect');
 const fpsSelect = document.getElementById('fpsSelect');
 const cameraSelect = document.getElementById('cameraSelect');
+const cameraStatus = document.getElementById('cameraStatus');
+const refreshCamerasBtn = document.getElementById('refreshCameras');
 
 const tracker = new SimpleTracker();
 
@@ -299,6 +301,11 @@ const updateCameraSelect = async () => {
     cameraSelect.value = 'auto';
   }
 
+  if (cameraStatus) {
+    const selectedOption = cameraSelect.options[cameraSelect.selectedIndex];
+    cameraStatus.textContent = selectedOption ? selectedOption.textContent : 'Automática';
+  }
+
   if (cameraConfig.mode === 'device' && cameraConfig.deviceId && !availableIds.includes(cameraConfig.deviceId)) {
     config.camera = { mode: 'auto', deviceId: null };
     persistConfig();
@@ -516,10 +523,20 @@ cameraSelect.addEventListener('change', async () => {
     config.camera = { mode: 'auto', deviceId: null };
   }
   persistConfig();
+  if (cameraStatus) {
+    const selectedOption = cameraSelect.options[cameraSelect.selectedIndex];
+    cameraStatus.textContent = selectedOption ? selectedOption.textContent : 'Automática';
+  }
   if (video.srcObject || value !== 'auto') {
     await startCamera();
   }
 });
+
+if (refreshCamerasBtn) {
+  refreshCamerasBtn.addEventListener('click', async () => {
+    await updateCameraSelect();
+  });
+}
 
 window.addEventListener('resize', configureCanvas);
 
