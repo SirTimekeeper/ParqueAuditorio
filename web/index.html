@@ -28,6 +28,7 @@
         <button id="setEntryLine">Definir Linha de Entrada</button>
         <button id="setExitLine">Definir Linha de Saída</button>
         <button id="setRoi">Definir Zona ROI</button>
+        <button id="startPreview" class="ghost">Ligar câmara</button>
         <button id="toggleCounting">Iniciar Contagem</button>
         <button id="resetCounts" class="danger">Reset Contagens</button>
       </div>
@@ -89,6 +90,22 @@
           <div class="warnings">
             <span id="warningFull" class="warning">Lotação atingida</span>
             <span id="warningMR" class="warning">MR cheia</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Dispositivos conectados</h2>
+        <p class="note">Lista de câmaras e dispositivos de áudio disponíveis.</p>
+        <ul id="deviceList" class="device-list"></ul>
+        <div class="line-status">
+          <div>
+            <span>Linha de entrada</span>
+            <strong id="entryLineStatus">Não definida</strong>
+          </div>
+          <div>
+            <span>Linha de saída</span>
+            <strong id="exitLineStatus">Não definida</strong>
           </div>
         </div>
       </section>
