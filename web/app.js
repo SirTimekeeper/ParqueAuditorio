@@ -67,6 +67,14 @@ let drawingMode = null;
 let drawingLine = null;
 let roiDrawing = null;
 let animationHandle = null;
+let animationHandle = null;
+let lastFrameTime = 0;
+let processingFrame = false;
+let snapshotInterval = null;
+let remoteSnapshotInterval = null;
+let activePreviewMode = 'local';
+let selectedRemoteDevice = null;
+
 let snapshotInterval = null;
 let remoteSnapshotInterval = null;
 let activePreviewMode = 'local';
@@ -705,45 +713,66 @@ const withinRoi = (det) => {
 };
 
 const processFrame = async () => {
-  if (!counting) return;
-  const detections = await detectVehicles(video, { minScore: 0.55 });
-  const frame = Date.now();
-  const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
-  const tracks = tracker.update(filtered);
+const processFrame = async () => {
+  if (!counting || processingFrame) return;
+  processingFrame = true;
 
-  const localSettings = getDeviceSettings(localDeviceId);
-  const entryLine = normalizedLineToPixels(localSettings.lines.entry);
-  const exitLine = normalizedLineToPixels(localSettings.lines.exit);
+  try {
+    const detections = await detectVehicles(video, { minScore: 0.55 });
+    const frame = Date.now();
+    const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
+    const tracks = tracker.update(filtered);
 
-  tracks.forEach((track) => {
-    if (entryLine && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
-      track.counted.entry = true;
-      config.counts.entries += 1;
-      addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
-    }
-    if (exitLine && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
-      track.counted.exit = true;
-      config.counts.exits += 1;
-      addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
-    }
-  });
+    const localSettings = getDeviceSettings(localDeviceId);
+    const entryLine = normalizedLineToPixels(localSettings.lines.entry);
+    const exitLine = normalizedLineToPixels(localSettings.lines.exit);
 
-  drawOverlay(tracks);
-  persistConfig();
+    tracks.forEach((track) => {
+      if (entryLine && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
+        track.counted.entry = true;
+        config.counts.entries += 1;
+        addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
+      }
+      if (exitLine && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
+        track.counted.exit = true;
+        config.counts.exits += 1;
+        addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
+      }
+    });
+
+    drawOverlay(tracks);
+    persistConfig();
+  } finally {
+    processingFrame = false;
+  }
 };
 
-const loop = async () => {
+
+    drawOverlay(tracks);
+    persistConfig();
+  } finally {
+    processingFrame = false;
+  }
+};
+
+const loop = (timestamp) => {
+  if (!counting) return;
   const fps = Number(fpsSelect.value);
   const interval = 1000 / fps;
-  await processFrame();
-  animationHandle = setTimeout(loop, interval);
+  if (!lastFrameTime || timestamp - lastFrameTime >= interval) {
+    lastFrameTime = timestamp;
+    processFrame().catch((error) => console.error(error));
+  }
+  animationHandle = requestAnimationFrame(loop);
 };
 
 const stopLoop = () => {
   if (animationHandle) {
-    clearTimeout(animationHandle);
+    cancelAnimationFrame(animationHandle);
     animationHandle = null;
   }
+  lastFrameTime = 0;
+  processingFrame = false;
 };
 
 const toggleCounting = async () => {
