@@ -64,19 +64,18 @@ body {
   border-radius: 16px;
   overflow: hidden;
   background: #111827;
-  min-height: 320px;
 }
 
 video,
-canvas {
+canvas,
+#remotePreview {
   width: 100%;
-  height: auto;
+  height: 100%;
   display: block;
+  object-fit: contain;
 }
 
 #remotePreview {
-  width: 100%;
-  height: auto;
   display: none;
 }
 

@@ -8,6 +8,7 @@ const overlay = document.getElementById('overlay');
 const statusText = document.getElementById('statusText');
 const remotePreview = document.getElementById('remotePreview');
 const previewStatus = document.getElementById('previewStatus');
+const videoWrapper = document.querySelector('.video-wrapper');
 
 const entriesEl = document.getElementById('entries');
 const exitsEl = document.getElementById('exits');
@@ -68,11 +69,14 @@ let snapshotInterval = null;
 let remoteSnapshotInterval = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
+let lastOrientation = null;
+let orientationChangeTimeout = null;
 
 const maxNormal = 112;
 const maxMR = 4;
 const isLandscape = () =>
   window.matchMedia?.('(orientation: landscape)')?.matches ?? window.innerWidth > window.innerHeight;
+lastOrientation = isLandscape();
 
 const toCanvasPoint = (event) => {
   const rect = overlay.getBoundingClientRect();
@@ -332,6 +336,12 @@ const configureCanvas = () => {
     overlay.width = video.videoWidth || 640;
     overlay.height = video.videoHeight || 480;
   }
+  if (videoWrapper && overlay.width && overlay.height) {
+    const targetHeight = Math.round((videoWrapper.clientWidth * overlay.height) / overlay.width);
+    if (targetHeight) {
+      videoWrapper.style.height = `${targetHeight}px`;
+    }
+  }
   drawOverlay();
 };
 
@@ -353,8 +363,7 @@ const getCameraConstraints = () => {
   const height = landscape ? Math.round(targetSize * 0.75) : targetSize;
   const videoConstraints = {
     width: { ideal: width },
-    height: { ideal: height },
-    aspectRatio: landscape ? 4 / 3 : 3 / 4
+    height: { ideal: height }
   };
   const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null };
   if (cameraConfig.mode === 'device' && cameraConfig.deviceId) {
@@ -939,20 +948,26 @@ if (refreshCamerasBtn) {
   });
 }
 
-const handleOrientationChange = async () => {
+const handleViewportChange = () => {
   configureCanvas();
-  if (!video.srcObject) return;
-  try {
-    await startCamera();
-  } catch (error) {
-    console.warn('Falha ao atualizar a orientação da câmara.', error);
-  }
+  const currentOrientation = isLandscape();
+  if (currentOrientation === lastOrientation) return;
+  lastOrientation = currentOrientation;
+  if (!video.srcObject || activePreviewMode !== 'local') return;
+  if (orientationChangeTimeout) clearTimeout(orientationChangeTimeout);
+  orientationChangeTimeout = setTimeout(async () => {
+    try {
+      await startCamera();
+    } catch (error) {
+      console.warn('Falha ao atualizar a orientação da câmara.', error);
+    }
+  }, 150);
 };
 
-window.addEventListener('resize', configureCanvas);
-window.addEventListener('orientationchange', handleOrientationChange);
+window.addEventListener('resize', handleViewportChange);
+window.addEventListener('orientationchange', handleViewportChange);
 if (screen.orientation?.addEventListener) {
-  screen.orientation.addEventListener('change', handleOrientationChange);
+  screen.orientation.addEventListener('change', handleViewportChange);
 }
 if (remotePreview) {
   remotePreview.addEventListener('load', configureCanvas);
