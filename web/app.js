@@ -71,6 +71,7 @@ let selectedRemoteDevice = null;
 
 const maxNormal = 112;
 const maxMR = 4;
+const isLandscape = () => window.matchMedia?.('(orientation: landscape)')?.matches ?? false;
 
 const toCanvasPoint = (event) => {
   const rect = overlay.getBoundingClientRect();
@@ -345,10 +346,14 @@ const stopCamera = () => {
 };
 
 const getCameraConstraints = () => {
-  const width = Number(resolutionSelect.value);
+  const targetSize = Number(resolutionSelect.value);
+  const landscape = isLandscape();
+  const width = landscape ? targetSize : Math.round(targetSize * 0.75);
+  const height = landscape ? Math.round(targetSize * 0.5625) : targetSize;
   const videoConstraints = {
     width: { ideal: width },
-    height: { ideal: Math.round(width * 0.75) }
+    height: { ideal: height },
+    aspectRatio: landscape ? 16 / 9 : 3 / 4
   };
   const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null };
   if (cameraConfig.mode === 'device' && cameraConfig.deviceId) {
@@ -933,7 +938,21 @@ if (refreshCamerasBtn) {
   });
 }
 
+const handleOrientationChange = async () => {
+  configureCanvas();
+  if (!video.srcObject) return;
+  try {
+    await startCamera();
+  } catch (error) {
+    console.warn('Falha ao atualizar a orientação da câmara.', error);
+  }
+};
+
 window.addEventListener('resize', configureCanvas);
+window.addEventListener('orientationchange', handleOrientationChange);
+if (screen.orientation?.addEventListener) {
+  screen.orientation.addEventListener('change', handleOrientationChange);
+}
 if (remotePreview) {
   remotePreview.addEventListener('load', configureCanvas);
 }
