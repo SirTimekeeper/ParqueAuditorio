@@ -28,6 +28,8 @@ const setRoiBtn = document.getElementById('setRoi');
 const startPreviewBtn = document.getElementById('startPreview');
 const toggleCountingBtn = document.getElementById('toggleCounting');
 const resetCountsBtn = document.getElementById('resetCounts');
+const addEntryBtn = document.getElementById('addEntry');
+const addExitBtn = document.getElementById('addExit');
 
 const addPriorityBtn = document.getElementById('addPriority');
 const removePriorityBtn = document.getElementById('removePriority');
@@ -882,6 +884,20 @@ resetCountsBtn.addEventListener('click', () => {
   config.counts.priorityAdjustments = 0;
   config.counts.mrCount = 0;
   config.log = [];
+  persistConfig();
+});
+
+addEntryBtn.addEventListener('click', () => {
+  config.counts.entries += 1;
+  addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada manual', detail: '+1' });
+  persistConfig();
+});
+
+addExitBtn.addEventListener('click', () => {
+  const maxExits = Math.max(0, config.counts.entries - config.counts.priorityAdjustments);
+  if (config.counts.exits >= maxExits) return;
+  config.counts.exits += 1;
+  addLog({ time: new Date().toLocaleTimeString(), type: 'Saída manual', detail: '+1' });
   persistConfig();
 });
 
