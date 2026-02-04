@@ -9,6 +9,7 @@ const defaultConfig = {
     exit: null
   },
   roi: null,
+  deviceSettings: {},
   counts: {
     entries: 0,
     exits: 0,
@@ -16,7 +17,11 @@ const defaultConfig = {
     mrCount: 0
   },
   priorityVehicles: [],
-  log: []
+  log: [],
+  camera: {
+    mode: 'auto',
+    deviceId: null
+  }
 };
 
 const readConfig = () => {

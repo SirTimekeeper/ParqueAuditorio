@@ -74,6 +74,12 @@ canvas {
   display: block;
 }
 
+#remotePreview {
+  width: 100%;
+  height: auto;
+  display: none;
+}
+
 #overlay {
   position: absolute;
   inset: 0;
@@ -150,6 +156,15 @@ canvas {
 
 .hint {
   color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.preview-status {
+  background: #eef1ff;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
   font-size: 0.9rem;
 }
 
@@ -300,6 +315,16 @@ canvas {
   border-radius: 999px;
   font-size: 0.7rem;
   font-weight: 600;
+}
+
+.remote-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.remote-devices h3 {
+  font-size: 1rem;
 }
 
 .line-status {

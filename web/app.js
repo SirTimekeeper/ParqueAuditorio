@@ -6,6 +6,8 @@ import { initVision, detectVehicles } from './vision.js';
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
 const statusText = document.getElementById('statusText');
+const remotePreview = document.getElementById('remotePreview');
+const previewStatus = document.getElementById('previewStatus');
 
 const entriesEl = document.getElementById('entries');
 const exitsEl = document.getElementById('exits');
@@ -15,6 +17,7 @@ const occupancyMREl = document.getElementById('occupancyMR');
 const warningFull = document.getElementById('warningFull');
 const warningMR = document.getElementById('warningMR');
 const deviceList = document.getElementById('deviceList');
+const remoteDeviceList = document.getElementById('remoteDeviceList');
 const entryLineStatus = document.getElementById('entryLineStatus');
 const exitLineStatus = document.getElementById('exitLineStatus');
 
@@ -43,12 +46,30 @@ const refreshCamerasBtn = document.getElementById('refreshCameras');
 
 const tracker = new SimpleTracker();
 
+const DEVICE_ID_KEY = 'parque-auditorio-device-id';
+const getOrCreateDeviceId = () => {
+  const stored = localStorage.getItem(DEVICE_ID_KEY);
+  if (stored) return stored;
+  const generated = crypto?.randomUUID?.() ?? `device-${Math.random().toString(16).slice(2)}`;
+  localStorage.setItem(DEVICE_ID_KEY, generated);
+  return generated;
+};
+
+const localDeviceId = getOrCreateDeviceId();
+const localDeviceLabel = navigator.userAgentData?.platform || navigator.platform || 'Dispositivo local';
+
 let config = { ...defaultConfig };
 let counting = false;
 let drawingMode = null;
 let drawingLine = null;
 let roiDrawing = null;
 let animationHandle = null;
+let lastFrameTime = 0;
+let processingFrame = false;
+let snapshotInterval = null;
+let remoteSnapshotInterval = null;
+let activePreviewMode = 'local';
+let selectedRemoteDevice = null;
 
 const maxNormal = 112;
 const maxMR = 4;
@@ -87,6 +108,36 @@ const normalizedRoiToPixels = (roi) => {
   };
 };
 
+const ensureDeviceSettings = (targetConfig) => {
+  if (!targetConfig.deviceSettings) {
+    targetConfig.deviceSettings = {};
+  }
+};
+
+const getDeviceSettings = (deviceId) => {
+  ensureDeviceSettings(config);
+  return (
+    config.deviceSettings[deviceId] ?? {
+      lines: {
+        entry: null,
+        exit: null
+      },
+      roi: null
+    }
+  );
+};
+
+const setDeviceSettings = (deviceId, settings) => {
+  ensureDeviceSettings(config);
+  config.deviceSettings[deviceId] = settings;
+  if (deviceId === localDeviceId) {
+    config.lines = settings.lines;
+    config.roi = settings.roi;
+  }
+};
+
+const getActiveDeviceId = () => (activePreviewMode === 'remote' ? selectedRemoteDevice?.id : localDeviceId);
+
 const setStatus = (text, isError = false) => {
   statusText.textContent = text;
   statusText.style.color = isError ? '#e23434' : '#2457ff';
@@ -103,11 +154,13 @@ const setSelectedCamera = async (deviceId) => {
 };
 
 const updateLineStatus = () => {
+  const activeDeviceId = getActiveDeviceId();
+  const activeSettings = activeDeviceId ? getDeviceSettings(activeDeviceId) : null;
   if (entryLineStatus) {
-    entryLineStatus.textContent = config.lines.entry ? 'Configurada' : 'Não definida';
+    entryLineStatus.textContent = activeSettings?.lines?.entry ? 'Configurada' : 'Não definida';
   }
   if (exitLineStatus) {
-    exitLineStatus.textContent = config.lines.exit ? 'Configurada' : 'Não definida';
+    exitLineStatus.textContent = activeSettings?.lines?.exit ? 'Configurada' : 'Não definida';
   }
 };
 
@@ -166,7 +219,23 @@ const persistConfig = () => {
 };
 
 const applyConfig = (loaded) => {
-  config = { ...defaultConfig, ...loaded };
+  const merged = { ...defaultConfig, ...loaded };
+  if (!merged.deviceSettings) {
+    merged.deviceSettings = {};
+  }
+  if (!merged.deviceSettings[localDeviceId] && (merged.lines || merged.roi)) {
+    merged.deviceSettings[localDeviceId] = {
+      lines: merged.lines ?? { entry: null, exit: null },
+      roi: merged.roi ?? null
+    };
+  }
+  if (!merged.deviceSettings[localDeviceId]) {
+    merged.deviceSettings[localDeviceId] = {
+      lines: { entry: null, exit: null },
+      roi: null
+    };
+  }
+  config = merged;
   persistConfig();
 };
 
@@ -183,9 +252,11 @@ const drawOverlay = (tracks = []) => {
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-  const entryLine = normalizedLineToPixels(config.lines.entry);
-  const exitLine = normalizedLineToPixels(config.lines.exit);
-  const roi = normalizedRoiToPixels(config.roi);
+  const activeDeviceId = getActiveDeviceId();
+  const activeSettings = activeDeviceId ? getDeviceSettings(activeDeviceId) : null;
+  const entryLine = normalizedLineToPixels(activeSettings?.lines?.entry);
+  const exitLine = normalizedLineToPixels(activeSettings?.lines?.exit);
+  const roi = normalizedRoiToPixels(activeSettings?.roi);
 
   if (roi) {
     ctx.strokeStyle = 'rgba(36, 87, 255, 0.8)';
@@ -254,8 +325,13 @@ const drawOverlay = (tracks = []) => {
 };
 
 const configureCanvas = () => {
-  overlay.width = video.videoWidth || 640;
-  overlay.height = video.videoHeight || 480;
+  if (activePreviewMode === 'remote' && remotePreview?.naturalWidth) {
+    overlay.width = remotePreview.naturalWidth;
+    overlay.height = remotePreview.naturalHeight || 480;
+  } else {
+    overlay.width = video.videoWidth || 640;
+    overlay.height = video.videoHeight || 480;
+  }
   drawOverlay();
 };
 
@@ -264,6 +340,10 @@ const stopCamera = () => {
   const tracks = video.srcObject.getTracks();
   tracks.forEach((track) => track.stop());
   video.srcObject = null;
+  if (snapshotInterval) {
+    clearInterval(snapshotInterval);
+    snapshotInterval = null;
+  }
 };
 
 const getCameraConstraints = () => {
@@ -346,6 +426,81 @@ const renderDeviceList = (devices = []) => {
   });
 };
 
+const formatLastSeen = (timestamp) => {
+  if (!timestamp) return 'Sem atividade';
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 10) return 'Agora mesmo';
+  if (seconds < 60) return `Há ${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Há ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `Há ${hours}h`;
+};
+
+const renderRemoteDevices = (devices = []) => {
+  if (!remoteDeviceList) return;
+  remoteDeviceList.innerHTML = '';
+  if (!devices.length) {
+    const li = document.createElement('li');
+    li.className = 'list-item';
+    li.textContent = 'Nenhuma câmara online.';
+    remoteDeviceList.appendChild(li);
+    return;
+  }
+
+  devices.forEach((device) => {
+    const li = document.createElement('li');
+    li.className = 'list-item';
+    const title = document.createElement('span');
+    const label = device.id === localDeviceId ? `${device.label ?? 'Dispositivo'} (este)` : device.label ?? 'Dispositivo';
+    title.textContent = label;
+    li.appendChild(title);
+    const meta = document.createElement('div');
+    meta.className = 'device-meta';
+    const status = document.createElement('span');
+    status.textContent = formatLastSeen(device.lastSeen);
+    meta.appendChild(status);
+    if (device.hasSnapshot) {
+      const badge = document.createElement('span');
+      badge.className = 'device-badge';
+      badge.textContent = 'Imagem pronta';
+      meta.appendChild(badge);
+    }
+    if (activePreviewMode === 'remote' && selectedRemoteDevice?.id === device.id) {
+      const activeBadge = document.createElement('span');
+      activeBadge.className = 'device-badge';
+      activeBadge.textContent = 'A configurar';
+      meta.appendChild(activeBadge);
+    }
+    li.appendChild(meta);
+    const actions = document.createElement('div');
+    actions.className = 'device-actions';
+    const selectBtn = document.createElement('button');
+    selectBtn.textContent = device.id === localDeviceId ? 'Usar local' : 'Configurar';
+    selectBtn.addEventListener('click', () => {
+      if (device.id === localDeviceId) {
+        showLocalPreview();
+      } else {
+        showRemotePreview(device);
+      }
+    });
+    actions.appendChild(selectBtn);
+    li.appendChild(actions);
+    remoteDeviceList.appendChild(li);
+  });
+};
+
+const fetchRemoteDevices = async () => {
+  try {
+    const response = await fetch('/api/devices');
+    if (!response.ok) return;
+    const payload = await response.json();
+    renderRemoteDevices(payload.devices ?? []);
+  } catch (error) {
+    console.warn('Falha ao carregar dispositivos remotos.', error);
+  }
+};
+
 const updateCameraSelect = async () => {
   if (!navigator.mediaDevices?.enumerateDevices) return;
   const devices = await navigator.mediaDevices.enumerateDevices();
@@ -389,8 +544,127 @@ const updateCameraSelect = async () => {
   renderDeviceList(devices);
 };
 
+const registerDevice = async () => {
+  try {
+    await fetch('/api/devices/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: localDeviceId, label: localDeviceLabel })
+    });
+  } catch (error) {
+    console.warn('Falha ao registar dispositivo.', error);
+  }
+};
+
+const sendHeartbeat = async () => {
+  try {
+    await fetch('/api/devices/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: localDeviceId })
+    });
+  } catch (error) {
+    console.warn('Falha ao atualizar presença.', error);
+  }
+};
+
+const snapshotCanvas = document.createElement('canvas');
+const snapshotContext = snapshotCanvas.getContext('2d');
+
+const sendSnapshot = async () => {
+  if (!video.srcObject || !video.videoWidth) return;
+  snapshotCanvas.width = video.videoWidth;
+  snapshotCanvas.height = video.videoHeight;
+  snapshotContext.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+  const image = snapshotCanvas.toDataURL('image/jpeg', 0.7);
+  try {
+    await fetch(`/api/devices/${localDeviceId}/snapshot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, width: snapshotCanvas.width, height: snapshotCanvas.height })
+    });
+  } catch (error) {
+    console.warn('Falha ao enviar imagem.', error);
+  }
+};
+
+const startSnapshotLoop = () => {
+  if (snapshotInterval) clearInterval(snapshotInterval);
+  snapshotInterval = setInterval(sendSnapshot, 3000);
+  sendSnapshot();
+};
+
+const setControlsDisabled = (disabled) => {
+  setEntryLineBtn.disabled = disabled;
+  setExitLineBtn.disabled = disabled;
+  setRoiBtn.disabled = disabled;
+  startPreviewBtn.disabled = disabled;
+  toggleCountingBtn.disabled = disabled;
+  cameraSelect.disabled = disabled;
+  resolutionSelect.disabled = disabled;
+  fpsSelect.disabled = disabled;
+  if (refreshCamerasBtn) refreshCamerasBtn.disabled = disabled;
+};
+
+const updatePreviewStatus = () => {
+  if (!previewStatus) return;
+  if (activePreviewMode === 'remote' && selectedRemoteDevice) {
+    previewStatus.textContent = `A configurar: ${selectedRemoteDevice.label ?? 'Dispositivo remoto'}`;
+  } else {
+    previewStatus.textContent = 'A configurar: este dispositivo';
+  }
+};
+
+const showLocalPreview = () => {
+  activePreviewMode = 'local';
+  selectedRemoteDevice = null;
+  if (remoteSnapshotInterval) {
+    clearInterval(remoteSnapshotInterval);
+    remoteSnapshotInterval = null;
+  }
+  remotePreview.style.display = 'none';
+  video.style.display = 'block';
+  updatePreviewStatus();
+  setControlsDisabled(false);
+  updateLineStatus();
+  configureCanvas();
+};
+
+const fetchRemoteSnapshot = async (deviceId) => {
+  try {
+    const response = await fetch(`/api/devices/${deviceId}/snapshot`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (payload.image) {
+      remotePreview.src = payload.image;
+    }
+  } catch (error) {
+    console.warn('Falha ao obter imagem remota.', error);
+  }
+};
+
+const showRemotePreview = (device) => {
+  activePreviewMode = 'remote';
+  selectedRemoteDevice = device;
+  stopCamera();
+  remotePreview.style.display = 'block';
+  video.style.display = 'none';
+  setControlsDisabled(true);
+  setEntryLineBtn.disabled = false;
+  setExitLineBtn.disabled = false;
+  setRoiBtn.disabled = false;
+  updatePreviewStatus();
+  updateLineStatus();
+  fetchRemoteSnapshot(device.id);
+  if (remoteSnapshotInterval) clearInterval(remoteSnapshotInterval);
+  remoteSnapshotInterval = setInterval(() => fetchRemoteSnapshot(device.id), 3000);
+};
+
 const startCamera = async () => {
   try {
+    if (activePreviewMode !== 'local') {
+      showLocalPreview();
+    }
     stopCamera();
     const stream = await navigator.mediaDevices.getUserMedia(getCameraConstraints());
     video.srcObject = stream;
@@ -399,6 +673,7 @@ const startCamera = async () => {
     await updateCameraSelect();
     setStatus('Câmara pronta');
     renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+    startSnapshotLoop();
   } catch (error) {
     setStatus('Erro ao aceder à câmara', true);
     alert('Não foi possível aceder à câmara. Verifique permissões ou use HTTPS/localhost.');
@@ -407,54 +682,71 @@ const startCamera = async () => {
 };
 
 const withinRoi = (det) => {
-  if (!config.roi) return true;
-  const roi = normalizedRoiToPixels(config.roi);
+  const localSettings = getDeviceSettings(localDeviceId);
+  if (!localSettings.roi) return true;
+  const roi = normalizedRoiToPixels(localSettings.roi);
   if (!roi) return true;
   return det.cx >= roi.x && det.cx <= roi.x + roi.width && det.cy >= roi.y && det.cy <= roi.y + roi.height;
 };
 
 const processFrame = async () => {
-  if (!counting) return;
-  const detections = await detectVehicles(video, { minScore: 0.55 });
-  const frame = Date.now();
-  const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
-  const tracks = tracker.update(filtered);
+  if (!counting || processingFrame) return;
+  processingFrame = true;
+  try {
+    const detections = await detectVehicles(video, { minScore: 0.55 });
+    const frame = Date.now();
+    const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
+    const tracks = tracker.update(filtered);
 
-  const entryLine = normalizedLineToPixels(config.lines.entry);
-  const exitLine = normalizedLineToPixels(config.lines.exit);
+    const localSettings = getDeviceSettings(localDeviceId);
+    const entryLine = normalizedLineToPixels(localSettings.lines.entry);
+    const exitLine = normalizedLineToPixels(localSettings.lines.exit);
 
-  tracks.forEach((track) => {
-    if (entryLine && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
-      track.counted.entry = true;
-      config.counts.entries += 1;
-      addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
-    }
-    if (exitLine && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
-      track.counted.exit = true;
-      config.counts.exits += 1;
-      addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
-    }
-  });
+    tracks.forEach((track) => {
+      if (entryLine && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
+        track.counted.entry = true;
+        config.counts.entries += 1;
+        addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
+      }
+      if (exitLine && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
+        track.counted.exit = true;
+        config.counts.exits += 1;
+        addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
+      }
+    });
 
-  drawOverlay(tracks);
-  persistConfig();
+    drawOverlay(tracks);
+    persistConfig();
+  } finally {
+    processingFrame = false;
+  }
 };
 
-const loop = async () => {
+const loop = (timestamp) => {
+  if (!counting) return;
   const fps = Number(fpsSelect.value);
   const interval = 1000 / fps;
-  await processFrame();
-  animationHandle = setTimeout(loop, interval);
+  if (!lastFrameTime || timestamp - lastFrameTime >= interval) {
+    lastFrameTime = timestamp;
+    processFrame().catch((error) => console.error(error));
+  }
+  animationHandle = requestAnimationFrame(loop);
 };
 
 const stopLoop = () => {
   if (animationHandle) {
-    clearTimeout(animationHandle);
+    cancelAnimationFrame(animationHandle);
     animationHandle = null;
   }
+  lastFrameTime = 0;
+  processingFrame = false;
 };
 
 const toggleCounting = async () => {
+  if (activePreviewMode === 'remote') {
+    setStatus('Contagem disponível apenas no dispositivo local.', true);
+    return;
+  }
   if (counting) {
     counting = false;
     toggleCountingBtn.textContent = 'Iniciar Contagem';
@@ -515,6 +807,8 @@ overlay.addEventListener('mousemove', (event) => {
 
 overlay.addEventListener('mouseup', () => {
   if (!drawingMode) return;
+  const activeDeviceId = getActiveDeviceId();
+  const activeSettings = activeDeviceId ? getDeviceSettings(activeDeviceId) : null;
   if (drawingMode === 'roi' && roiDrawing) {
     const normalizedStart = toNormalized({ x: roiDrawing.x, y: roiDrawing.y });
     const normalizedEnd = toNormalized({ x: roiDrawing.x + roiDrawing.width, y: roiDrawing.y + roiDrawing.height });
@@ -522,17 +816,24 @@ overlay.addEventListener('mouseup', () => {
     const y = Math.min(normalizedStart.y, normalizedEnd.y);
     const width = Math.abs(normalizedEnd.x - normalizedStart.x);
     const height = Math.abs(normalizedEnd.y - normalizedStart.y);
-    config.roi = { x, y, width, height };
+    if (activeSettings) {
+      activeSettings.roi = { x, y, width, height };
+    }
   }
   if ((drawingMode === 'entry' || drawingMode === 'exit') && drawingLine) {
     const start = toNormalized(drawingLine.start);
     const end = toNormalized(drawingLine.end);
     const line = { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
-    if (drawingMode === 'entry') {
-      config.lines.entry = line;
-    } else {
-      config.lines.exit = line;
+    if (activeSettings) {
+      if (drawingMode === 'entry') {
+        activeSettings.lines.entry = line;
+      } else {
+        activeSettings.lines.exit = line;
+      }
     }
+  }
+  if (activeDeviceId && activeSettings) {
+    setDeviceSettings(activeDeviceId, activeSettings);
   }
   persistConfig();
   clearDrawing();
@@ -627,6 +928,9 @@ if (refreshCamerasBtn) {
 }
 
 window.addEventListener('resize', configureCanvas);
+if (remotePreview) {
+  remotePreview.addEventListener('load', configureCanvas);
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -640,8 +944,13 @@ loadConfig().then(() => {
   updateCountsUI();
   updateLineStatus();
   updateCameraSelect();
+  fetchRemoteDevices();
 });
 
 if (navigator.mediaDevices?.addEventListener) {
   navigator.mediaDevices.addEventListener('devicechange', updateCameraSelect);
 }
+
+registerDevice();
+setInterval(sendHeartbeat, 10000);
+setInterval(fetchRemoteDevices, 5000);
