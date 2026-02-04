@@ -64,8 +64,14 @@ let drawingMode = null;
 let drawingLine = null;
 let roiDrawing = null;
 let animationHandle = null;
+let animationHandle = null;
 let lastFrameTime = 0;
 let processingFrame = false;
+let snapshotInterval = null;
+let remoteSnapshotInterval = null;
+let activePreviewMode = 'local';
+let selectedRemoteDevice = null;
+
 let snapshotInterval = null;
 let remoteSnapshotInterval = null;
 let activePreviewMode = 'local';
@@ -690,8 +696,10 @@ const withinRoi = (det) => {
 };
 
 const processFrame = async () => {
+const processFrame = async () => {
   if (!counting || processingFrame) return;
   processingFrame = true;
+
   try {
     const detections = await detectVehicles(video, { minScore: 0.55 });
     const frame = Date.now();
@@ -714,6 +722,14 @@ const processFrame = async () => {
         addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
       }
     });
+
+    drawOverlay(tracks);
+    persistConfig();
+  } finally {
+    processingFrame = false;
+  }
+};
+
 
     drawOverlay(tracks);
     persistConfig();
