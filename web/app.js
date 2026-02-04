@@ -1,7 +1,7 @@
 import { defaultConfig, loadLocalConfig, saveLocalConfig, fetchServerConfig, saveServerConfig } from './config.js';
 import { SimpleTracker } from './tracker.js';
 import { detectCrossing } from './counter.js';
-import { initVision, detectVehicles } from './vision.js';
+import { initVision, detectVehicles, initPlateRecognition, recognizePlateFromCanvas } from './vision.js';
 
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
@@ -40,6 +40,8 @@ const priorityInput = document.getElementById('priorityInput');
 const priorityAddBtn = document.getElementById('priorityAdd');
 const priorityList = document.getElementById('priorityList');
 const logList = document.getElementById('log');
+const lastPlateEl = document.getElementById('lastPlate');
+const plateStatusEl = document.getElementById('plateStatus');
 
 const resolutionSelect = document.getElementById('resolutionSelect');
 const fpsSelect = document.getElementById('fpsSelect');
@@ -73,6 +75,9 @@ let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
 let orientationChangeTimeout = null;
+let plateReady = false;
+let plateQueue = Promise.resolve();
+const plateChecks = new Map();
 
 const maxNormal = 112;
 const maxMR = 4;
@@ -147,6 +152,77 @@ const getActiveDeviceId = () => (activePreviewMode === 'remote' ? selectedRemote
 const setStatus = (text, isError = false) => {
   statusText.textContent = text;
   statusText.style.color = isError ? '#e23434' : '#2457ff';
+};
+
+const setPlateStatus = (text, plate = null) => {
+  if (plateStatusEl) {
+    plateStatusEl.textContent = text;
+  }
+  if (lastPlateEl && plate !== null) {
+    lastPlateEl.textContent = plate || '-';
+  }
+};
+
+const normalizePlateValue = (value) => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+const extractPlateCandidate = (rawText) => {
+  if (!rawText) return '';
+  const matches = rawText.toUpperCase().match(/[A-Z0-9]{5,8}/g) ?? [];
+  if (matches.length) {
+    return matches.sort((a, b) => b.length - a.length)[0];
+  }
+  const normalized = normalizePlateValue(rawText);
+  if (normalized.length >= 5 && normalized.length <= 8) return normalized;
+  return '';
+};
+
+const isPriorityPlate = (plate) => {
+  const normalized = normalizePlateValue(plate);
+  if (!normalized) return false;
+  return config.priorityVehicles.some((item) => normalizePlateValue(item) === normalized);
+};
+
+const queuePlateTask = (task) => {
+  plateQueue = plateQueue
+    .then(task)
+    .catch((error) => {
+      console.warn('Falha no OCR de matrícula.', error);
+      setPlateStatus('OCR indisponível');
+    });
+};
+
+const capturePlateCanvas = (track) => {
+  if (!video.videoWidth || !video.videoHeight) return null;
+  const scale = 2;
+  const plateHeight = track.height * 0.35;
+  const plateY = track.y + track.height * 0.55;
+  const plateX = track.x;
+  const plateWidth = track.width;
+  const cropX = Math.max(0, Math.floor(plateX));
+  const cropY = Math.max(0, Math.floor(plateY));
+  const cropWidth = Math.min(video.videoWidth - cropX, Math.floor(plateWidth));
+  const cropHeight = Math.min(video.videoHeight - cropY, Math.floor(plateHeight));
+  if (cropWidth <= 0 || cropHeight <= 0) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.floor(cropWidth * scale));
+  canvas.height = Math.max(1, Math.floor(cropHeight * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    const contrast = Math.min(255, Math.max(0, (gray - 128) * 1.3 + 128));
+    data[i] = contrast;
+    data[i + 1] = contrast;
+    data[i + 2] = contrast;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
 };
 
 const addLog = (entry) => {
@@ -704,6 +780,50 @@ const withinRoi = (det) => {
   return det.cx >= roi.x && det.cx <= roi.x + roi.width && det.cy >= roi.y && det.cy <= roi.y + roi.height;
 };
 
+const handlePlateCheck = (track, direction) => {
+  if (!plateReady) {
+    setPlateStatus('OCR indisponível');
+    return;
+  }
+  const key = `${track.id}-${direction}`;
+  if (plateChecks.has(key)) return;
+  plateChecks.set(key, { status: 'pending' });
+  const cropCanvas = capturePlateCanvas(track);
+  if (!cropCanvas) {
+    setPlateStatus('Recorte indisponível');
+    plateChecks.set(key, { status: 'no-crop' });
+    return;
+  }
+  setPlateStatus('A reconhecer...', '...');
+  queuePlateTask(async () => {
+    const rawText = await recognizePlateFromCanvas(cropCanvas);
+    const plate = extractPlateCandidate(rawText);
+    if (!plate) {
+      setPlateStatus('Matrícula não detetada', '-');
+      plateChecks.set(key, { status: 'miss' });
+      return;
+    }
+    const isPriority = isPriorityPlate(plate);
+    setPlateStatus(isPriority ? 'Prioritária' : 'Detetada', plate);
+    addLog({
+      time: new Date().toLocaleTimeString(),
+      type: 'Matrícula detetada',
+      detail: `${plate} (${direction})`
+    });
+    if (isPriority) {
+      if (direction === 'entrada') {
+        config.counts.priorityAdjustments += 1;
+        addLog({ time: new Date().toLocaleTimeString(), type: 'Prioritária detetada', detail: plate });
+      } else if (direction === 'saida') {
+        config.counts.priorityAdjustments = Math.max(0, config.counts.priorityAdjustments - 1);
+        addLog({ time: new Date().toLocaleTimeString(), type: 'Prioritária saída', detail: plate });
+      }
+    }
+    plateChecks.set(key, { status: 'done', plate, isPriority });
+    persistConfig();
+  });
+};
+
 const processFrame = async () => {
   if (!counting) return;
   const detections = await detectVehicles(video, { minScore: 0.55 });
@@ -720,11 +840,13 @@ const processFrame = async () => {
       track.counted.entry = true;
       config.counts.entries += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
+      handlePlateCheck(track, 'entrada');
     }
     if (exitLine && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
       track.counted.exit = true;
       config.counts.exits += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
+      handlePlateCheck(track, 'saida');
     }
   });
 
@@ -763,6 +885,15 @@ const toggleCounting = async () => {
       await startCamera();
     }
     await initVision();
+    try {
+      await initPlateRecognition();
+      plateReady = true;
+      setPlateStatus('OCR pronto');
+    } catch (error) {
+      console.warn('OCR indisponível.', error);
+      plateReady = false;
+      setPlateStatus('OCR indisponível');
+    }
     counting = true;
     toggleCountingBtn.textContent = 'Parar';
     loop();
@@ -884,6 +1015,7 @@ resetCountsBtn.addEventListener('click', () => {
   config.counts.priorityAdjustments = 0;
   config.counts.mrCount = 0;
   config.log = [];
+  setPlateStatus('Aguardando deteção', '-');
   persistConfig();
 });
 
