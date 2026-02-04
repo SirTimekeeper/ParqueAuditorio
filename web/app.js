@@ -759,6 +759,7 @@ const clearDrawing = () => {
   drawingLine = null;
   roiDrawing = null;
   overlay.style.pointerEvents = 'none';
+  overlay.style.touchAction = 'auto';
   drawOverlay();
 };
 
@@ -767,32 +768,12 @@ const setupDrawing = (mode) => {
   drawingLine = null;
   roiDrawing = null;
   overlay.style.pointerEvents = 'auto';
+  overlay.style.touchAction = 'none';
 };
 
-overlay.addEventListener('mousedown', (event) => {
-  if (!drawingMode) return;
-  const start = toCanvasPoint(event);
-  if (drawingMode === 'roi') {
-    roiDrawing = { x: start.x, y: start.y, width: 0, height: 0 };
-  } else {
-    drawingLine = { start, end: start };
-  }
-});
+let activePointerId = null;
 
-overlay.addEventListener('mousemove', (event) => {
-  if (!drawingMode) return;
-  const point = toCanvasPoint(event);
-  if (drawingMode === 'roi' && roiDrawing) {
-    roiDrawing.width = point.x - roiDrawing.x;
-    roiDrawing.height = point.y - roiDrawing.y;
-  }
-  if ((drawingMode === 'entry' || drawingMode === 'exit') && drawingLine) {
-    drawingLine.end = point;
-  }
-  drawOverlay();
-});
-
-overlay.addEventListener('mouseup', () => {
+const finalizeDrawing = () => {
   if (!drawingMode) return;
   const activeDeviceId = getActiveDeviceId();
   const activeSettings = activeDeviceId ? getDeviceSettings(activeDeviceId) : null;
@@ -824,7 +805,45 @@ overlay.addEventListener('mouseup', () => {
   }
   persistConfig();
   clearDrawing();
+};
+
+overlay.addEventListener('pointerdown', (event) => {
+  if (!drawingMode) return;
+  event.preventDefault();
+  activePointerId = event.pointerId;
+  overlay.setPointerCapture(activePointerId);
+  const start = toCanvasPoint(event);
+  if (drawingMode === 'roi') {
+    roiDrawing = { x: start.x, y: start.y, width: 0, height: 0 };
+  } else {
+    drawingLine = { start, end: start };
+  }
 });
+
+overlay.addEventListener('pointermove', (event) => {
+  if (!drawingMode || activePointerId !== event.pointerId) return;
+  event.preventDefault();
+  const point = toCanvasPoint(event);
+  if (drawingMode === 'roi' && roiDrawing) {
+    roiDrawing.width = point.x - roiDrawing.x;
+    roiDrawing.height = point.y - roiDrawing.y;
+  }
+  if ((drawingMode === 'entry' || drawingMode === 'exit') && drawingLine) {
+    drawingLine.end = point;
+  }
+  drawOverlay();
+});
+
+const releasePointer = (event) => {
+  if (activePointerId !== event.pointerId) return;
+  event.preventDefault();
+  overlay.releasePointerCapture(activePointerId);
+  activePointerId = null;
+  finalizeDrawing();
+};
+
+overlay.addEventListener('pointerup', releasePointer);
+overlay.addEventListener('pointercancel', releasePointer);
 
 setEntryLineBtn.addEventListener('click', () => setupDrawing('entry'));
 setExitLineBtn.addEventListener('click', () => setupDrawing('exit'));
