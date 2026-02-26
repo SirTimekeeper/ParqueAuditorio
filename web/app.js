@@ -15,6 +15,7 @@ const exitsEl = document.getElementById('exits');
 const occupancyEl = document.getElementById('occupancy');
 const occupancyNormalEl = document.getElementById('occupancyNormal');
 const occupancyMREl = document.getElementById('occupancyMR');
+const remainingSlotsEl = document.getElementById('remainingSlots');
 const warningFull = document.getElementById('warningFull');
 const warningMR = document.getElementById('warningMR');
 const deviceList = document.getElementById('deviceList');
@@ -48,6 +49,8 @@ const fpsSelect = document.getElementById('fpsSelect');
 const cameraSelect = document.getElementById('cameraSelect');
 const cameraStatus = document.getElementById('cameraStatus');
 const refreshCamerasBtn = document.getElementById('refreshCameras');
+const networkCameraUrlInput = document.getElementById('networkCameraUrl');
+const setNetworkCameraBtn = document.getElementById('setNetworkCamera');
 
 const tracker = new SimpleTracker();
 
@@ -230,7 +233,7 @@ const addLog = (entry) => {
 };
 
 const setSelectedCamera = async (deviceId) => {
-  config.camera = { mode: 'device', deviceId };
+  config.camera = { mode: 'device', deviceId, networkUrl: '' };
   persistConfig();
   await startCamera();
 };
@@ -254,10 +257,12 @@ const updateCountsUI = () => {
   const occupancy = Math.max(0, rawOccupancy);
   const occupancyMR = Math.min(config.counts.mrCount, occupancy, maxMR);
   const occupancyNormal = Math.max(0, occupancy - occupancyMR);
+  const remainingSlots = Math.max(0, maxNormal - occupancyNormal);
 
   occupancyEl.textContent = occupancy;
   occupancyNormalEl.textContent = occupancyNormal;
   occupancyMREl.textContent = occupancyMR;
+  if (remainingSlotsEl) remainingSlotsEl.textContent = remainingSlots;
 
   warningFull.classList.toggle('active', occupancyNormal >= maxNormal);
   warningMR.classList.toggle('active', occupancyMR >= maxMR);
@@ -424,10 +429,16 @@ const configureCanvas = () => {
 };
 
 const stopCamera = () => {
-  if (!video.srcObject) return;
-  const tracks = video.srcObject.getTracks();
-  tracks.forEach((track) => track.stop());
-  video.srcObject = null;
+  if (video.srcObject) {
+    const tracks = video.srcObject.getTracks();
+    tracks.forEach((track) => track.stop());
+    video.srcObject = null;
+  }
+  if (video.src) {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
   if (snapshotInterval) {
     clearInterval(snapshotInterval);
     snapshotInterval = null;
@@ -602,7 +613,8 @@ const updateCameraSelect = async () => {
   [
     { value: 'auto', label: 'Automática' },
     { value: 'user', label: 'Frontal' },
-    { value: 'environment', label: 'Traseira' }
+    { value: 'environment', label: 'Traseira' },
+    { value: 'network', label: 'Endereço de rede' }
   ].forEach((item) => cameraSelect.appendChild(buildCameraOption(item.value, item.label)));
 
   cameras.forEach((camera, index) => {
@@ -614,7 +626,7 @@ const updateCameraSelect = async () => {
   let targetValue = 'auto';
   if (cameraConfig.mode === 'device' && cameraConfig.deviceId && availableIds.includes(cameraConfig.deviceId)) {
     targetValue = `device:${cameraConfig.deviceId}`;
-  } else if (cameraConfig.mode === 'user' || cameraConfig.mode === 'environment') {
+  } else if (cameraConfig.mode === 'user' || cameraConfig.mode === 'environment' || cameraConfig.mode === 'network') {
     targetValue = cameraConfig.mode;
   }
   cameraSelect.value = targetValue;
@@ -628,7 +640,7 @@ const updateCameraSelect = async () => {
   }
 
   if (cameraConfig.mode === 'device' && cameraConfig.deviceId && !availableIds.includes(cameraConfig.deviceId)) {
-    config.camera = { mode: 'auto', deviceId: null };
+    config.camera = { mode: 'auto', deviceId: null, networkUrl: '' };
     persistConfig();
   }
 
@@ -757,6 +769,21 @@ const startCamera = async () => {
       showLocalPreview();
     }
     stopCamera();
+    const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null, networkUrl: '' };
+
+    if (cameraConfig.mode === 'network' && cameraConfig.networkUrl) {
+      video.srcObject = null;
+      video.src = cameraConfig.networkUrl;
+      video.crossOrigin = 'anonymous';
+      await video.play();
+      configureCanvas();
+      await updateCameraSelect();
+      setStatus('Câmara de rede pronta');
+      renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+      return;
+    }
+
+    video.removeAttribute('src');
     const stream = await navigator.mediaDevices.getUserMedia(getCameraConstraints());
     video.srcObject = stream;
     await video.play();
@@ -767,7 +794,7 @@ const startCamera = async () => {
     startSnapshotLoop();
   } catch (error) {
     setStatus('Erro ao aceder à câmara', true);
-    alert('Não foi possível aceder à câmara. Verifique permissões ou use HTTPS/localhost.');
+    alert('Não foi possível aceder à câmara. Verifique permissões, URL da câmara de rede ou use HTTPS/localhost.');
     throw error;
   }
 };
@@ -1073,17 +1100,24 @@ resolutionSelect.addEventListener('change', async () => {
 
 cameraSelect.addEventListener('change', async () => {
   const value = cameraSelect.value;
+  const previousUrl = config.camera?.networkUrl ?? '';
   if (value.startsWith('device:')) {
-    config.camera = { mode: 'device', deviceId: value.replace('device:', '') };
+    config.camera = { mode: 'device', deviceId: value.replace('device:', ''), networkUrl: '' };
   } else if (value === 'user' || value === 'environment') {
-    config.camera = { mode: value, deviceId: null };
+    config.camera = { mode: value, deviceId: null, networkUrl: '' };
+  } else if (value === 'network') {
+    config.camera = { mode: 'network', deviceId: null, networkUrl: previousUrl };
   } else {
-    config.camera = { mode: 'auto', deviceId: null };
+    config.camera = { mode: 'auto', deviceId: null, networkUrl: '' };
   }
   persistConfig();
   if (cameraStatus) {
     const selectedOption = cameraSelect.options[cameraSelect.selectedIndex];
     cameraStatus.textContent = selectedOption ? selectedOption.textContent : 'Automática';
+  }
+  if (value === 'network' && !config.camera.networkUrl) {
+    setStatus('Defina o endereço da câmara de rede.', true);
+    return;
   }
   if (video.srcObject || value !== 'auto') {
     await startCamera();
@@ -1095,6 +1129,25 @@ if (refreshCamerasBtn) {
     await updateCameraSelect();
   });
 }
+
+
+if (setNetworkCameraBtn) {
+  setNetworkCameraBtn.addEventListener('click', async () => {
+    const url = networkCameraUrlInput?.value?.trim() ?? '';
+    if (!url) {
+      setStatus('Insira um endereço de rede válido.', true);
+      return;
+    }
+    config.camera = { mode: 'network', deviceId: null, networkUrl: url };
+    cameraSelect.value = 'network';
+    if (cameraStatus) {
+      cameraStatus.textContent = 'Endereço de rede';
+    }
+    persistConfig();
+    await startCamera();
+  });
+}
+
 
 const handleViewportChange = () => {
   configureCanvas();
@@ -1151,6 +1204,9 @@ if ('serviceWorker' in navigator) {
 }
 
 loadConfig().then(() => {
+  if (networkCameraUrlInput) {
+    networkCameraUrlInput.value = config.camera?.networkUrl ?? '';
+  }
   updateCountsUI();
   updateLineStatus();
   updateCameraSelect();

@@ -62,13 +62,17 @@
           </select>
         </label>
       </div>
+      <div class="controls secondary network-controls">
+        <label class="network-input">
+          Endereço da câmara por rede
+          <input id="networkCameraUrl" type="url" placeholder="http://192.168.1.20:8080/stream" />
+        </label>
+        <button id="setNetworkCamera" class="ghost">Usar endereço</button>
+      </div>
       <div class="hint">
         <p>Toque/clique para definir as linhas. Para a zona ROI, clique e arraste para desenhar um retângulo.</p>
       </div>
-    </section>
-
-    <aside class="panel">
-      <section class="card">
+      <section class="card counts-card">
         <h2>Contagens</h2>
         <div class="metrics">
           <div>
@@ -90,6 +94,7 @@
         </div>
         <div class="capacity">
           <p>Capacidade normal: <strong>112</strong></p>
+          <p>Lugares disponíveis até 112: <strong id="remainingSlots">112</strong></p>
           <p>Capacidade MR: <strong>4</strong></p>
           <p>Ocupação normal: <strong id="occupancyNormal">0</strong></p>
           <p>Ocupação MR: <strong id="occupancyMR">0</strong></p>
@@ -99,7 +104,9 @@
           </div>
         </div>
       </section>
+    </section>
 
+    <aside class="panel">
       <section class="card">
         <h2>Dispositivos conectados</h2>
         <p class="note">Lista de câmaras e dispositivos de áudio disponíveis.</p>
