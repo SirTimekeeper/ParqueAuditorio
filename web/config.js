@@ -17,7 +17,8 @@ export const defaultConfig = {
   log: [],
   camera: {
     mode: 'auto',
-    deviceId: null
+    deviceId: null,
+    networkUrl: ''
   }
 };
 

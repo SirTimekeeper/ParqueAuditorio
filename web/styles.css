@@ -153,6 +153,29 @@ canvas,
   color: var(--muted);
 }
 
+
+.controls.secondary.network-controls {
+  align-items: flex-end;
+}
+
+.network-input {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: 280px;
+}
+
+.network-input input {
+  width: min(420px, 100%);
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #d7dce5;
+  background: #fff;
+  color: var(--text);
+}
+
+
 .hint {
   color: var(--muted);
   font-size: 0.9rem;
