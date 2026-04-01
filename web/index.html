@@ -29,6 +29,7 @@
       <div class="controls">
         <button id="setEntryLine">Definir Linha de Entrada</button>
         <button id="setExitLine">Definir Linha de Saída</button>
+        <button id="setPassageArea">Definir Área de Circulação</button>
         <button id="setRoi">Definir Zona ROI</button>
         <button id="startPreview" class="ghost">Ligar câmara</button>
         <button id="toggleCounting">Iniciar Contagem</button>
@@ -70,7 +71,7 @@
         <button id="setNetworkCamera" class="ghost">Usar endereço</button>
       </div>
       <div class="hint">
-        <p>Toque/clique para definir as linhas. Para a zona ROI, clique e arraste para desenhar um retângulo.</p>
+        <p>Toque/clique para definir as linhas. Para a área de circulação e zona ROI, clique e arraste para desenhar um retângulo.</p>
       </div>
       <section class="card counts-card">
         <h2>Contagens</h2>
@@ -124,6 +125,10 @@
           <div>
             <span>Linha de saída</span>
             <strong id="exitLineStatus">Não definida</strong>
+          </div>
+          <div>
+            <span>Área de circulação</span>
+            <strong id="passageAreaStatus">Não definida</strong>
           </div>
         </div>
       </section>
