@@ -6,7 +6,8 @@ export const defaultConfig = {
     exit: null
   },
   roi: null,
-  passageArea: null,
+  entryArea: null,
+  exitArea: null,
   deviceSettings: {},
   counts: {
     entries: 0,

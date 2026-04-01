@@ -31,8 +31,9 @@ npm start
 ## Como desenhar linhas/zonas
 1. Clique em **Definir Linha de Entrada** e desenhe a linha (clique/arraste).
 2. Clique em **Definir Linha de Saída** e desenhe a linha.
-3. (Opcional) Clique em **Definir Área de Circulação** e desenhe um retângulo onde carros podem passar para entrada/saída.
-4. (Opcional) Clique em **Definir Zona ROI** e desenhe um retângulo para filtrar deteções.
+3. (Opcional) Clique em **Definir Área de Entrada** e desenhe um retângulo onde quer validar carros que entram.
+4. (Opcional) Clique em **Definir Área de Saída** e desenhe um retângulo onde quer validar carros que saem.
+5. (Opcional) Clique em **Definir Zona ROI** e desenhe um retângulo para filtrar deteções.
 
 ## Contagem e regras
 - Um veículo conta quando o centro da bounding box cruza a linha.
