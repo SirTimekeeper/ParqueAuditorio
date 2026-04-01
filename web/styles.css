@@ -234,6 +234,27 @@ canvas,
   margin-bottom: 0.4rem;
 }
 
+.manual-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.manual-counts label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.manual-counts input {
+  border: 1px solid #d7dce5;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  font-size: 1rem;
+}
+
 .warnings {
   display: flex;
   gap: 0.5rem;

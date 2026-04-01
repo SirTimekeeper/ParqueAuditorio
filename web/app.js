@@ -33,8 +33,8 @@ const setExitAreaBtn = document.getElementById('setExitArea');
 const startPreviewBtn = document.getElementById('startPreview');
 const toggleCountingBtn = document.getElementById('toggleCounting');
 const resetCountsBtn = document.getElementById('resetCounts');
-const addEntryBtn = document.getElementById('addEntry');
-const addExitBtn = document.getElementById('addExit');
+const manualEntriesInput = document.getElementById('manualEntriesInput');
+const manualExitsInput = document.getElementById('manualExitsInput');
 
 const addPriorityBtn = document.getElementById('addPriority');
 const removePriorityBtn = document.getElementById('removePriority');
@@ -276,6 +276,8 @@ const updateLineStatus = () => {
 const updateCountsUI = () => {
   entriesEl.textContent = config.counts.entries;
   exitsEl.textContent = config.counts.exits;
+  if (manualEntriesInput) manualEntriesInput.value = String(config.counts.entries);
+  if (manualExitsInput) manualExitsInput.value = String(config.counts.exits);
 
   const rawOccupancy = config.counts.entries - config.counts.exits - config.counts.priorityAdjustments;
   const occupancy = Math.max(0, rawOccupancy);
@@ -887,6 +889,21 @@ const withinExitArea = (track) => {
   return track.cx >= area.x && track.cx <= area.x + area.width && track.cy >= area.y && track.cy <= area.y + area.height;
 };
 
+const enteredArea = (track, areaNormalized) => {
+  if (!areaNormalized || !track.history?.length) return false;
+  const area = normalizedAreaToPixels(areaNormalized);
+  if (!area) return false;
+  const isInside = (point) =>
+    point.x >= area.x &&
+    point.x <= area.x + area.width &&
+    point.y >= area.y &&
+    point.y <= area.y + area.height;
+  const current = track.history[track.history.length - 1];
+  const previous = track.history[track.history.length - 2];
+  if (!current || !previous) return false;
+  return !isInside(previous) && isInside(current);
+};
+
 const handlePlateCheck = (track, direction) => {
   if (!plateReady) {
     setPlateStatus('OCR indisponível');
@@ -943,13 +960,19 @@ const processFrame = async () => {
   const exitLine = normalizedLineToPixels(localSettings.lines.exit);
 
   tracks.forEach((track) => {
-    if (entryLine && withinEntryArea(track) && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
+    const crossedEntryLine =
+      entryLine && withinEntryArea(track) && detectCrossing({ line: entryLine, track, lineKey: 'entry' });
+    const enteredEntryArea = localSettings.entryArea && enteredArea(track, localSettings.entryArea);
+    if ((crossedEntryLine || enteredEntryArea) && !track.counted?.entry) {
       track.counted.entry = true;
       config.counts.entries += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
       handlePlateCheck(track, 'entrada');
     }
-    if (exitLine && withinExitArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
+    const crossedExitLine =
+      exitLine && withinExitArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' });
+    const enteredExitArea = localSettings.exitArea && enteredArea(track, localSettings.exitArea);
+    if ((crossedExitLine || enteredExitArea) && !track.counted?.exit) {
       track.counted.exit = true;
       config.counts.exits += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
@@ -1138,17 +1161,24 @@ resetCountsBtn.addEventListener('click', () => {
   persistConfig();
 });
 
-addEntryBtn.addEventListener('click', () => {
-  config.counts.entries += 1;
-  addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada manual', detail: '+1' });
+manualEntriesInput?.addEventListener('change', () => {
+  const value = Number.parseInt(manualEntriesInput.value, 10);
+  config.counts.entries = Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (config.counts.exits > config.counts.entries) {
+    config.counts.exits = config.counts.entries;
+    if (manualExitsInput) manualExitsInput.value = String(config.counts.exits);
+  }
+  addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada manual', detail: String(config.counts.entries) });
   persistConfig();
 });
 
-addExitBtn.addEventListener('click', () => {
+manualExitsInput?.addEventListener('change', () => {
+  const value = Number.parseInt(manualExitsInput.value, 10);
+  const requestedExits = Number.isFinite(value) ? Math.max(0, value) : 0;
   const maxExits = Math.max(0, config.counts.entries - config.counts.priorityAdjustments);
-  if (config.counts.exits >= maxExits) return;
-  config.counts.exits += 1;
-  addLog({ time: new Date().toLocaleTimeString(), type: 'Saída manual', detail: '+1' });
+  config.counts.exits = Math.min(requestedExits, maxExits);
+  manualExitsInput.value = String(config.counts.exits);
+  addLog({ time: new Date().toLocaleTimeString(), type: 'Saída manual', detail: String(config.counts.exits) });
   persistConfig();
 });
 
