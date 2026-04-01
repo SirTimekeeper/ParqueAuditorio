@@ -899,8 +899,15 @@ const enteredArea = (track, areaNormalized) => {
     point.y >= area.y &&
     point.y <= area.y + area.height;
   const current = track.history[track.history.length - 1];
+  if (!current) return false;
+
+  const wasEverInside = track.history.slice(0, -1).some((point) => isInside(point));
+  if (!wasEverInside && isInside(current)) {
+    return true;
+  }
+
   const previous = track.history[track.history.length - 2];
-  if (!current || !previous) return false;
+  if (!previous) return false;
   return !isInside(previous) && isInside(current);
 };
 
