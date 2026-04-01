@@ -374,7 +374,7 @@ canvas,
 
 .line-status {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
@@ -425,6 +425,9 @@ canvas,
     gap: 0.5rem;
   }
   .metrics {
+    grid-template-columns: 1fr;
+  }
+  .line-status {
     grid-template-columns: 1fr;
   }
 }

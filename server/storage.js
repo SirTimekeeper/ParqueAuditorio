@@ -9,6 +9,7 @@ const defaultConfig = {
     exit: null
   },
   roi: null,
+  passageArea: null,
   deviceSettings: {},
   counts: {
     entries: 0,

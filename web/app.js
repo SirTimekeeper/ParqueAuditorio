@@ -22,10 +22,12 @@ const deviceList = document.getElementById('deviceList');
 const remoteDeviceList = document.getElementById('remoteDeviceList');
 const entryLineStatus = document.getElementById('entryLineStatus');
 const exitLineStatus = document.getElementById('exitLineStatus');
+const passageAreaStatus = document.getElementById('passageAreaStatus');
 
 const setEntryLineBtn = document.getElementById('setEntryLine');
 const setExitLineBtn = document.getElementById('setExitLine');
 const setRoiBtn = document.getElementById('setRoi');
+const setPassageAreaBtn = document.getElementById('setPassageArea');
 const startPreviewBtn = document.getElementById('startPreview');
 const toggleCountingBtn = document.getElementById('toggleCounting');
 const resetCountsBtn = document.getElementById('resetCounts');
@@ -122,6 +124,16 @@ const normalizedRoiToPixels = (roi) => {
   };
 };
 
+const normalizedAreaToPixels = (area) => {
+  if (!area) return null;
+  return {
+    x: area.x * overlay.width,
+    y: area.y * overlay.height,
+    width: area.width * overlay.width,
+    height: area.height * overlay.height
+  };
+};
+
 const ensureDeviceSettings = (targetConfig) => {
   if (!targetConfig.deviceSettings) {
     targetConfig.deviceSettings = {};
@@ -136,7 +148,8 @@ const getDeviceSettings = (deviceId) => {
         entry: null,
         exit: null
       },
-      roi: null
+      roi: null,
+      passageArea: null
     }
   );
 };
@@ -147,6 +160,7 @@ const setDeviceSettings = (deviceId, settings) => {
   if (deviceId === localDeviceId) {
     config.lines = settings.lines;
     config.roi = settings.roi;
+    config.passageArea = settings.passageArea;
   }
 };
 
@@ -247,6 +261,9 @@ const updateLineStatus = () => {
   if (exitLineStatus) {
     exitLineStatus.textContent = activeSettings?.lines?.exit ? 'Configurada' : 'Não definida';
   }
+  if (passageAreaStatus) {
+    passageAreaStatus.textContent = activeSettings?.passageArea ? 'Configurada' : 'Não definida';
+  }
 };
 
 const updateCountsUI = () => {
@@ -310,16 +327,26 @@ const applyConfig = (loaded) => {
   if (!merged.deviceSettings) {
     merged.deviceSettings = {};
   }
-  if (!merged.deviceSettings[localDeviceId] && (merged.lines || merged.roi)) {
+  Object.keys(merged.deviceSettings).forEach((deviceId) => {
+    const settings = merged.deviceSettings[deviceId] ?? {};
+    merged.deviceSettings[deviceId] = {
+      lines: settings.lines ?? { entry: null, exit: null },
+      roi: settings.roi ?? null,
+      passageArea: settings.passageArea ?? null
+    };
+  });
+  if (!merged.deviceSettings[localDeviceId] && (merged.lines || merged.roi || merged.passageArea)) {
     merged.deviceSettings[localDeviceId] = {
       lines: merged.lines ?? { entry: null, exit: null },
-      roi: merged.roi ?? null
+      roi: merged.roi ?? null,
+      passageArea: merged.passageArea ?? null
     };
   }
   if (!merged.deviceSettings[localDeviceId]) {
     merged.deviceSettings[localDeviceId] = {
       lines: { entry: null, exit: null },
-      roi: null
+      roi: null,
+      passageArea: null
     };
   }
   config = merged;
@@ -344,11 +371,20 @@ const drawOverlay = (tracks = []) => {
   const entryLine = normalizedLineToPixels(activeSettings?.lines?.entry);
   const exitLine = normalizedLineToPixels(activeSettings?.lines?.exit);
   const roi = normalizedRoiToPixels(activeSettings?.roi);
+  const passageArea = normalizedAreaToPixels(activeSettings?.passageArea);
 
   if (roi) {
     ctx.strokeStyle = 'rgba(36, 87, 255, 0.8)';
     ctx.lineWidth = 2;
     ctx.strokeRect(roi.x, roi.y, roi.width, roi.height);
+  }
+
+  if (passageArea) {
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
+    ctx.fillRect(passageArea.x, passageArea.y, passageArea.width, passageArea.height);
+    ctx.strokeStyle = 'rgba(14, 116, 144, 0.95)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(passageArea.x, passageArea.y, passageArea.width, passageArea.height);
   }
 
   if (entryLine) {
@@ -402,8 +438,8 @@ const drawOverlay = (tracks = []) => {
     ctx.setLineDash([]);
   }
 
-  if (drawingMode === 'roi' && roiDrawing) {
-    ctx.strokeStyle = 'rgba(36, 87, 255, 0.8)';
+  if ((drawingMode === 'roi' || drawingMode === 'passage') && roiDrawing) {
+    ctx.strokeStyle = drawingMode === 'passage' ? 'rgba(14, 116, 144, 0.95)' : 'rgba(36, 87, 255, 0.8)';
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 6]);
     ctx.strokeRect(roiDrawing.x, roiDrawing.y, roiDrawing.width, roiDrawing.height);
@@ -701,6 +737,7 @@ const setControlsDisabled = (disabled) => {
   setEntryLineBtn.disabled = disabled;
   setExitLineBtn.disabled = disabled;
   setRoiBtn.disabled = disabled;
+  if (setPassageAreaBtn) setPassageAreaBtn.disabled = disabled;
   startPreviewBtn.disabled = disabled;
   toggleCountingBtn.disabled = disabled;
   cameraSelect.disabled = disabled;
@@ -756,6 +793,7 @@ const showRemotePreview = (device) => {
   setEntryLineBtn.disabled = false;
   setExitLineBtn.disabled = false;
   setRoiBtn.disabled = false;
+  if (setPassageAreaBtn) setPassageAreaBtn.disabled = false;
   updatePreviewStatus();
   updateLineStatus();
   fetchRemoteSnapshot(device.id);
@@ -805,6 +843,14 @@ const withinRoi = (det) => {
   const roi = normalizedRoiToPixels(localSettings.roi);
   if (!roi) return true;
   return det.cx >= roi.x && det.cx <= roi.x + roi.width && det.cy >= roi.y && det.cy <= roi.y + roi.height;
+};
+
+const withinPassageArea = (track) => {
+  const localSettings = getDeviceSettings(localDeviceId);
+  if (!localSettings.passageArea) return true;
+  const area = normalizedAreaToPixels(localSettings.passageArea);
+  if (!area) return true;
+  return track.cx >= area.x && track.cx <= area.x + area.width && track.cy >= area.y && track.cy <= area.y + area.height;
 };
 
 const handlePlateCheck = (track, direction) => {
@@ -863,13 +909,13 @@ const processFrame = async () => {
   const exitLine = normalizedLineToPixels(localSettings.lines.exit);
 
   tracks.forEach((track) => {
-    if (entryLine && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
+    if (entryLine && withinPassageArea(track) && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
       track.counted.entry = true;
       config.counts.entries += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
       handlePlateCheck(track, 'entrada');
     }
-    if (exitLine && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
+    if (exitLine && withinPassageArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
       track.counted.exit = true;
       config.counts.exits += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
@@ -952,7 +998,7 @@ const finalizeDrawing = () => {
   if (!drawingMode) return;
   const activeDeviceId = getActiveDeviceId();
   const activeSettings = activeDeviceId ? getDeviceSettings(activeDeviceId) : null;
-  if (drawingMode === 'roi' && roiDrawing) {
+  if ((drawingMode === 'roi' || drawingMode === 'passage') && roiDrawing) {
     const normalizedStart = toNormalized({ x: roiDrawing.x, y: roiDrawing.y });
     const normalizedEnd = toNormalized({ x: roiDrawing.x + roiDrawing.width, y: roiDrawing.y + roiDrawing.height });
     const x = Math.min(normalizedStart.x, normalizedEnd.x);
@@ -960,7 +1006,11 @@ const finalizeDrawing = () => {
     const width = Math.abs(normalizedEnd.x - normalizedStart.x);
     const height = Math.abs(normalizedEnd.y - normalizedStart.y);
     if (activeSettings) {
-      activeSettings.roi = { x, y, width, height };
+      if (drawingMode === 'roi') {
+        activeSettings.roi = { x, y, width, height };
+      } else {
+        activeSettings.passageArea = { x, y, width, height };
+      }
     }
   }
   if ((drawingMode === 'entry' || drawingMode === 'exit') && drawingLine) {
@@ -988,7 +1038,7 @@ overlay.addEventListener('pointerdown', (event) => {
   activePointerId = event.pointerId;
   overlay.setPointerCapture(activePointerId);
   const start = toCanvasPoint(event);
-  if (drawingMode === 'roi') {
+  if (drawingMode === 'roi' || drawingMode === 'passage') {
     roiDrawing = { x: start.x, y: start.y, width: 0, height: 0 };
   } else {
     drawingLine = { start, end: start };
@@ -999,7 +1049,7 @@ overlay.addEventListener('pointermove', (event) => {
   if (!drawingMode || activePointerId !== event.pointerId) return;
   event.preventDefault();
   const point = toCanvasPoint(event);
-  if (drawingMode === 'roi' && roiDrawing) {
+  if ((drawingMode === 'roi' || drawingMode === 'passage') && roiDrawing) {
     roiDrawing.width = point.x - roiDrawing.x;
     roiDrawing.height = point.y - roiDrawing.y;
   }
@@ -1023,6 +1073,9 @@ overlay.addEventListener('pointercancel', releasePointer);
 setEntryLineBtn.addEventListener('click', () => setupDrawing('entry'));
 setExitLineBtn.addEventListener('click', () => setupDrawing('exit'));
 setRoiBtn.addEventListener('click', () => setupDrawing('roi'));
+if (setPassageAreaBtn) {
+  setPassageAreaBtn.addEventListener('click', () => setupDrawing('passage'));
+}
 
 toggleCountingBtn.addEventListener('click', toggleCounting);
 
