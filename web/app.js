@@ -22,12 +22,14 @@ const deviceList = document.getElementById('deviceList');
 const remoteDeviceList = document.getElementById('remoteDeviceList');
 const entryLineStatus = document.getElementById('entryLineStatus');
 const exitLineStatus = document.getElementById('exitLineStatus');
-const passageAreaStatus = document.getElementById('passageAreaStatus');
+const entryAreaStatus = document.getElementById('entryAreaStatus');
+const exitAreaStatus = document.getElementById('exitAreaStatus');
 
 const setEntryLineBtn = document.getElementById('setEntryLine');
 const setExitLineBtn = document.getElementById('setExitLine');
 const setRoiBtn = document.getElementById('setRoi');
-const setPassageAreaBtn = document.getElementById('setPassageArea');
+const setEntryAreaBtn = document.getElementById('setEntryArea');
+const setExitAreaBtn = document.getElementById('setExitArea');
 const startPreviewBtn = document.getElementById('startPreview');
 const toggleCountingBtn = document.getElementById('toggleCounting');
 const resetCountsBtn = document.getElementById('resetCounts');
@@ -149,7 +151,8 @@ const getDeviceSettings = (deviceId) => {
         exit: null
       },
       roi: null,
-      passageArea: null
+      entryArea: null,
+      exitArea: null
     }
   );
 };
@@ -160,7 +163,8 @@ const setDeviceSettings = (deviceId, settings) => {
   if (deviceId === localDeviceId) {
     config.lines = settings.lines;
     config.roi = settings.roi;
-    config.passageArea = settings.passageArea;
+    config.entryArea = settings.entryArea;
+    config.exitArea = settings.exitArea;
   }
 };
 
@@ -261,8 +265,11 @@ const updateLineStatus = () => {
   if (exitLineStatus) {
     exitLineStatus.textContent = activeSettings?.lines?.exit ? 'Configurada' : 'Não definida';
   }
-  if (passageAreaStatus) {
-    passageAreaStatus.textContent = activeSettings?.passageArea ? 'Configurada' : 'Não definida';
+  if (entryAreaStatus) {
+    entryAreaStatus.textContent = activeSettings?.entryArea ? 'Configurada' : 'Não definida';
+  }
+  if (exitAreaStatus) {
+    exitAreaStatus.textContent = activeSettings?.exitArea ? 'Configurada' : 'Não definida';
   }
 };
 
@@ -332,21 +339,24 @@ const applyConfig = (loaded) => {
     merged.deviceSettings[deviceId] = {
       lines: settings.lines ?? { entry: null, exit: null },
       roi: settings.roi ?? null,
-      passageArea: settings.passageArea ?? null
+      entryArea: settings.entryArea ?? settings.passageArea ?? null,
+      exitArea: settings.exitArea ?? settings.passageArea ?? null
     };
   });
-  if (!merged.deviceSettings[localDeviceId] && (merged.lines || merged.roi || merged.passageArea)) {
+  if (!merged.deviceSettings[localDeviceId] && (merged.lines || merged.roi || merged.entryArea || merged.exitArea || merged.passageArea)) {
     merged.deviceSettings[localDeviceId] = {
       lines: merged.lines ?? { entry: null, exit: null },
       roi: merged.roi ?? null,
-      passageArea: merged.passageArea ?? null
+      entryArea: merged.entryArea ?? merged.passageArea ?? null,
+      exitArea: merged.exitArea ?? merged.passageArea ?? null
     };
   }
   if (!merged.deviceSettings[localDeviceId]) {
     merged.deviceSettings[localDeviceId] = {
       lines: { entry: null, exit: null },
       roi: null,
-      passageArea: null
+      entryArea: null,
+      exitArea: null
     };
   }
   config = merged;
@@ -371,7 +381,8 @@ const drawOverlay = (tracks = []) => {
   const entryLine = normalizedLineToPixels(activeSettings?.lines?.entry);
   const exitLine = normalizedLineToPixels(activeSettings?.lines?.exit);
   const roi = normalizedRoiToPixels(activeSettings?.roi);
-  const passageArea = normalizedAreaToPixels(activeSettings?.passageArea);
+  const entryArea = normalizedAreaToPixels(activeSettings?.entryArea);
+  const exitArea = normalizedAreaToPixels(activeSettings?.exitArea);
 
   if (roi) {
     ctx.strokeStyle = 'rgba(36, 87, 255, 0.8)';
@@ -379,12 +390,20 @@ const drawOverlay = (tracks = []) => {
     ctx.strokeRect(roi.x, roi.y, roi.width, roi.height);
   }
 
-  if (passageArea) {
+  if (entryArea) {
     ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
-    ctx.fillRect(passageArea.x, passageArea.y, passageArea.width, passageArea.height);
+    ctx.fillRect(entryArea.x, entryArea.y, entryArea.width, entryArea.height);
     ctx.strokeStyle = 'rgba(14, 116, 144, 0.95)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(passageArea.x, passageArea.y, passageArea.width, passageArea.height);
+    ctx.strokeRect(entryArea.x, entryArea.y, entryArea.width, entryArea.height);
+  }
+
+  if (exitArea) {
+    ctx.fillStyle = 'rgba(248, 113, 113, 0.14)';
+    ctx.fillRect(exitArea.x, exitArea.y, exitArea.width, exitArea.height);
+    ctx.strokeStyle = 'rgba(185, 28, 28, 0.95)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(exitArea.x, exitArea.y, exitArea.width, exitArea.height);
   }
 
   if (entryLine) {
@@ -438,8 +457,13 @@ const drawOverlay = (tracks = []) => {
     ctx.setLineDash([]);
   }
 
-  if ((drawingMode === 'roi' || drawingMode === 'passage') && roiDrawing) {
-    ctx.strokeStyle = drawingMode === 'passage' ? 'rgba(14, 116, 144, 0.95)' : 'rgba(36, 87, 255, 0.8)';
+  if ((drawingMode === 'roi' || drawingMode === 'entryArea' || drawingMode === 'exitArea') && roiDrawing) {
+    ctx.strokeStyle =
+      drawingMode === 'entryArea'
+        ? 'rgba(14, 116, 144, 0.95)'
+        : drawingMode === 'exitArea'
+          ? 'rgba(185, 28, 28, 0.95)'
+          : 'rgba(36, 87, 255, 0.8)';
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 6]);
     ctx.strokeRect(roiDrawing.x, roiDrawing.y, roiDrawing.width, roiDrawing.height);
@@ -737,7 +761,8 @@ const setControlsDisabled = (disabled) => {
   setEntryLineBtn.disabled = disabled;
   setExitLineBtn.disabled = disabled;
   setRoiBtn.disabled = disabled;
-  if (setPassageAreaBtn) setPassageAreaBtn.disabled = disabled;
+  if (setEntryAreaBtn) setEntryAreaBtn.disabled = disabled;
+  if (setExitAreaBtn) setExitAreaBtn.disabled = disabled;
   startPreviewBtn.disabled = disabled;
   toggleCountingBtn.disabled = disabled;
   cameraSelect.disabled = disabled;
@@ -793,7 +818,8 @@ const showRemotePreview = (device) => {
   setEntryLineBtn.disabled = false;
   setExitLineBtn.disabled = false;
   setRoiBtn.disabled = false;
-  if (setPassageAreaBtn) setPassageAreaBtn.disabled = false;
+  if (setEntryAreaBtn) setEntryAreaBtn.disabled = false;
+  if (setExitAreaBtn) setExitAreaBtn.disabled = false;
   updatePreviewStatus();
   updateLineStatus();
   fetchRemoteSnapshot(device.id);
@@ -845,10 +871,18 @@ const withinRoi = (det) => {
   return det.cx >= roi.x && det.cx <= roi.x + roi.width && det.cy >= roi.y && det.cy <= roi.y + roi.height;
 };
 
-const withinPassageArea = (track) => {
+const withinEntryArea = (track) => {
   const localSettings = getDeviceSettings(localDeviceId);
-  if (!localSettings.passageArea) return true;
-  const area = normalizedAreaToPixels(localSettings.passageArea);
+  if (!localSettings.entryArea) return true;
+  const area = normalizedAreaToPixels(localSettings.entryArea);
+  if (!area) return true;
+  return track.cx >= area.x && track.cx <= area.x + area.width && track.cy >= area.y && track.cy <= area.y + area.height;
+};
+
+const withinExitArea = (track) => {
+  const localSettings = getDeviceSettings(localDeviceId);
+  if (!localSettings.exitArea) return true;
+  const area = normalizedAreaToPixels(localSettings.exitArea);
   if (!area) return true;
   return track.cx >= area.x && track.cx <= area.x + area.width && track.cy >= area.y && track.cy <= area.y + area.height;
 };
@@ -909,13 +943,13 @@ const processFrame = async () => {
   const exitLine = normalizedLineToPixels(localSettings.lines.exit);
 
   tracks.forEach((track) => {
-    if (entryLine && withinPassageArea(track) && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
+    if (entryLine && withinEntryArea(track) && detectCrossing({ line: entryLine, track, lineKey: 'entry' })) {
       track.counted.entry = true;
       config.counts.entries += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
       handlePlateCheck(track, 'entrada');
     }
-    if (exitLine && withinPassageArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
+    if (exitLine && withinExitArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' })) {
       track.counted.exit = true;
       config.counts.exits += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
@@ -998,7 +1032,7 @@ const finalizeDrawing = () => {
   if (!drawingMode) return;
   const activeDeviceId = getActiveDeviceId();
   const activeSettings = activeDeviceId ? getDeviceSettings(activeDeviceId) : null;
-  if ((drawingMode === 'roi' || drawingMode === 'passage') && roiDrawing) {
+  if ((drawingMode === 'roi' || drawingMode === 'entryArea' || drawingMode === 'exitArea') && roiDrawing) {
     const normalizedStart = toNormalized({ x: roiDrawing.x, y: roiDrawing.y });
     const normalizedEnd = toNormalized({ x: roiDrawing.x + roiDrawing.width, y: roiDrawing.y + roiDrawing.height });
     const x = Math.min(normalizedStart.x, normalizedEnd.x);
@@ -1008,8 +1042,10 @@ const finalizeDrawing = () => {
     if (activeSettings) {
       if (drawingMode === 'roi') {
         activeSettings.roi = { x, y, width, height };
+      } else if (drawingMode === 'entryArea') {
+        activeSettings.entryArea = { x, y, width, height };
       } else {
-        activeSettings.passageArea = { x, y, width, height };
+        activeSettings.exitArea = { x, y, width, height };
       }
     }
   }
@@ -1038,7 +1074,7 @@ overlay.addEventListener('pointerdown', (event) => {
   activePointerId = event.pointerId;
   overlay.setPointerCapture(activePointerId);
   const start = toCanvasPoint(event);
-  if (drawingMode === 'roi' || drawingMode === 'passage') {
+  if (drawingMode === 'roi' || drawingMode === 'entryArea' || drawingMode === 'exitArea') {
     roiDrawing = { x: start.x, y: start.y, width: 0, height: 0 };
   } else {
     drawingLine = { start, end: start };
@@ -1049,7 +1085,7 @@ overlay.addEventListener('pointermove', (event) => {
   if (!drawingMode || activePointerId !== event.pointerId) return;
   event.preventDefault();
   const point = toCanvasPoint(event);
-  if ((drawingMode === 'roi' || drawingMode === 'passage') && roiDrawing) {
+  if ((drawingMode === 'roi' || drawingMode === 'entryArea' || drawingMode === 'exitArea') && roiDrawing) {
     roiDrawing.width = point.x - roiDrawing.x;
     roiDrawing.height = point.y - roiDrawing.y;
   }
@@ -1073,8 +1109,11 @@ overlay.addEventListener('pointercancel', releasePointer);
 setEntryLineBtn.addEventListener('click', () => setupDrawing('entry'));
 setExitLineBtn.addEventListener('click', () => setupDrawing('exit'));
 setRoiBtn.addEventListener('click', () => setupDrawing('roi'));
-if (setPassageAreaBtn) {
-  setPassageAreaBtn.addEventListener('click', () => setupDrawing('passage'));
+if (setEntryAreaBtn) {
+  setEntryAreaBtn.addEventListener('click', () => setupDrawing('entryArea'));
+}
+if (setExitAreaBtn) {
+  setExitAreaBtn.addEventListener('click', () => setupDrawing('exitArea'));
 }
 
 toggleCountingBtn.addEventListener('click', toggleCounting);
