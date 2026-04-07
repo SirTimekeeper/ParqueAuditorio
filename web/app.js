@@ -72,6 +72,9 @@ const localDeviceLabel = navigator.userAgentData?.platform || navigator.platform
 
 let config = { ...defaultConfig };
 let counting = false;
+const EXIT_EVENT_DEDUP_MS = 2200;
+const EXIT_EVENT_DEDUP_DISTANCE_PX = 85;
+const recentExitEvents = [];
 let drawingMode = null;
 let drawingLine = null;
 let roiDrawing = null;
@@ -911,6 +914,25 @@ const enteredArea = (track, areaNormalized) => {
   return !isInside(previous) && isInside(current);
 };
 
+const pruneOldExitEvents = (nowMs) => {
+  while (recentExitEvents.length && nowMs - recentExitEvents[0].time > EXIT_EVENT_DEDUP_MS) {
+    recentExitEvents.shift();
+  }
+};
+
+const shouldSkipDuplicateExit = (track, nowMs) => {
+  pruneOldExitEvents(nowMs);
+  return recentExitEvents.some((event) => {
+    const distance = Math.hypot(track.cx - event.cx, track.cy - event.cy);
+    return distance <= EXIT_EVENT_DEDUP_DISTANCE_PX;
+  });
+};
+
+const registerExitEvent = (track, nowMs) => {
+  recentExitEvents.push({ cx: track.cx, cy: track.cy, time: nowMs });
+  pruneOldExitEvents(nowMs);
+};
+
 const handlePlateCheck = (track, direction) => {
   if (!plateReady) {
     setPlateStatus('OCR indisponível');
@@ -957,6 +979,7 @@ const handlePlateCheck = (track, direction) => {
 
 const processFrame = async () => {
   if (!counting) return;
+  const nowMs = Date.now();
   const detections = await detectVehicles(video, { minScore: 0.55 });
   const frame = Date.now();
   const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
@@ -979,9 +1002,11 @@ const processFrame = async () => {
     const crossedExitLine =
       exitLine && withinExitArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' });
     const enteredExitArea = localSettings.exitArea && enteredArea(track, localSettings.exitArea);
-    if ((crossedExitLine || enteredExitArea) && !track.counted?.exit) {
+    const duplicateExit = shouldSkipDuplicateExit(track, nowMs);
+    if ((crossedExitLine || enteredExitArea) && !track.counted?.exit && !duplicateExit) {
       track.counted.exit = true;
       config.counts.exits += 1;
+      registerExitEvent(track, nowMs);
       addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
       handlePlateCheck(track, 'saida');
     }
