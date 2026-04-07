@@ -63,6 +63,7 @@ const setNetworkCameraBtn = document.getElementById('setNetworkCamera');
 const fsCarEntriesEl = document.getElementById('fsCarEntries');
 const fsCarExitsEl = document.getElementById('fsCarExits');
 const fsOccupancyEl = document.getElementById('fsOccupancy');
+const countsCardEl = document.querySelector('.counts-card');
 
 const tracker = new SimpleTracker();
 
@@ -386,6 +387,21 @@ const updateCountsUI = () => {
 
   warningFull.classList.toggle('active', occupancyNormal >= maxNormal);
   warningMR.classList.toggle('active', occupancyMR >= maxMR);
+
+  if (countsCardEl) {
+    const normalizedUsage = Math.max(0, Math.min(1, occupancyNormal / maxNormal));
+    const state =
+      normalizedUsage >= 1
+        ? 'full'
+        : normalizedUsage >= 0.85
+          ? 'critical'
+          : normalizedUsage >= 0.65
+            ? 'high'
+            : normalizedUsage >= 0.35
+              ? 'medium'
+              : 'low';
+    countsCardEl.dataset.occupancyState = state;
+  }
 };
 
 const renderPriorityList = () => {
