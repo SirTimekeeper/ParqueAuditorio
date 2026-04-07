@@ -18,6 +18,7 @@
 body {
   background: var(--bg);
   color: var(--text);
+  min-height: 100vh;
 }
 
 .app-header {
@@ -51,6 +52,8 @@ body {
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 1.5rem;
   padding: 1.5rem 2rem 2rem;
+  max-width: 1440px;
+  margin: 0 auto;
 }
 
 .video-panel {
@@ -136,10 +139,11 @@ canvas,
   border: none;
   background: var(--accent);
   color: #fff;
-  padding: 0.6rem 1rem;
+  padding: 0.7rem 1rem;
   border-radius: 10px;
   cursor: pointer;
   font-weight: 600;
+  min-height: 44px;
 }
 
 .controls button.danger {
@@ -163,6 +167,7 @@ canvas,
   gap: 0.5rem;
   color: var(--muted);
   font-size: 0.9rem;
+  min-height: 44px;
 }
 
 .controls.secondary label.camera-menu {
@@ -172,11 +177,12 @@ canvas,
 }
 
 .controls.secondary select {
-  padding: 0.35rem 0.6rem;
+  padding: 0.45rem 0.6rem;
   border-radius: 8px;
   border: 1px solid #d7dce5;
   background: #fff;
   color: var(--text);
+  min-height: 40px;
 }
 
 .controls.secondary button.ghost {
@@ -204,16 +210,17 @@ canvas,
   flex-direction: column;
   align-items: flex-start;
   gap: 0.35rem;
-  min-width: 280px;
+  min-width: min(280px, 100%);
 }
 
 .network-input input {
   width: min(420px, 100%);
-  padding: 0.45rem 0.65rem;
+  padding: 0.6rem 0.65rem;
   border-radius: 8px;
   border: 1px solid #d7dce5;
   background: #fff;
   color: var(--text);
+  min-height: 44px;
 }
 
 
@@ -249,7 +256,7 @@ canvas,
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
 }
 
@@ -327,17 +334,19 @@ canvas,
 
 .priority-list input {
   flex: 1;
-  padding: 0.5rem;
+  padding: 0.6rem;
   border-radius: 8px;
   border: 1px solid #d7dce5;
+  min-height: 44px;
 }
 
 .priority-list button {
   border: none;
   background: var(--accent);
   color: #fff;
-  padding: 0.5rem 0.9rem;
+  padding: 0.6rem 0.9rem;
   border-radius: 8px;
+  min-height: 44px;
 }
 
 .plate-status {
@@ -477,6 +486,33 @@ canvas,
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 1fr;
+    padding: 1rem;
+  }
+
+  .app-header {
+    padding: 1rem;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .line-status {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .controls.secondary,
+  .controls.secondary.network-controls {
+    align-items: stretch;
+  }
+
+  .controls.secondary label,
+  .network-input {
+    width: 100%;
+  }
+
+  .network-input input {
+    width: 100%;
   }
 }
 
@@ -486,10 +522,55 @@ canvas,
     align-items: flex-start;
     gap: 0.5rem;
   }
+
+  .app-header h1 {
+    font-size: 1.25rem;
+  }
+
+  .status {
+    width: 100%;
+    text-align: center;
+  }
+
+  .card {
+    padding: 0.9rem;
+  }
+
+  .controls {
+    gap: 0.55rem;
+  }
+
+  .controls button {
+    width: 100%;
+  }
+
+  .controls.secondary select,
+  .controls.secondary button.ghost,
+  .priority-list button {
+    width: 100%;
+  }
+
+  .priority-list {
+    flex-direction: column;
+  }
+
+  .preview-status {
+    font-size: 0.85rem;
+  }
+
   .metrics {
     grid-template-columns: 1fr;
   }
+
+  .plate-status {
+    grid-template-columns: 1fr;
+  }
+
   .line-status {
+    grid-template-columns: 1fr;
+  }
+
+  .fullscreen-stats {
     grid-template-columns: 1fr;
   }
 }
