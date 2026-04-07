@@ -88,6 +88,41 @@ let orientationChangeTimeout = null;
 let plateReady = false;
 let plateQueue = Promise.resolve();
 const plateChecks = new Map();
+let audioContext = null;
+
+const ensureAudioContext = () => {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!audioContext) {
+    audioContext = new AudioCtx();
+  }
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
+  }
+  return audioContext;
+};
+
+const playEventSound = (type) => {
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const frequencies = type === 'entry' ? [660, 880] : [420, 300];
+  frequencies.forEach((frequency, index) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const startAt = now + index * 0.08;
+    const endAt = startAt + 0.11;
+    osc.type = 'sine';
+    osc.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.18, startAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startAt);
+    osc.stop(endAt);
+  });
+};
 
 const maxNormal = 112;
 const maxMR = 4;
@@ -997,6 +1032,7 @@ const processFrame = async () => {
       track.counted.entry = true;
       config.counts.entries += 1;
       addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
+      playEventSound('entry');
       handlePlateCheck(track, 'entrada');
     }
     const crossedExitLine =
@@ -1008,6 +1044,7 @@ const processFrame = async () => {
       config.counts.exits += 1;
       registerExitEvent(track, nowMs);
       addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
+      playEventSound('exit');
       handlePlateCheck(track, 'saida');
     }
   });
@@ -1017,7 +1054,7 @@ const processFrame = async () => {
 };
 
 const loop = async () => {
-  const fps = Number(fpsSelect.value);
+  const fps = Math.max(1, Number(fpsSelect.value) || 15);
   const interval = 1000 / fps;
   await processFrame();
   animationHandle = setTimeout(loop, interval);
@@ -1057,6 +1094,7 @@ const toggleCounting = async () => {
       setPlateStatus('OCR indisponível');
     }
     counting = true;
+    ensureAudioContext();
     toggleCountingBtn.textContent = 'Parar';
     loop();
   } catch (error) {
