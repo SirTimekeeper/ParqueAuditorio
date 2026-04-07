@@ -13,6 +13,10 @@ const videoWrapper = document.querySelector('.video-wrapper');
 const entriesEl = document.getElementById('entries');
 const exitsEl = document.getElementById('exits');
 const occupancyEl = document.getElementById('occupancy');
+const carEntriesEl = document.getElementById('carEntries');
+const carExitsEl = document.getElementById('carExits');
+const motorcycleEntriesEl = document.getElementById('motorcycleEntries');
+const motorcycleExitsEl = document.getElementById('motorcycleExits');
 const occupancyNormalEl = document.getElementById('occupancyNormal');
 const occupancyMREl = document.getElementById('occupancyMR');
 const remainingSlotsEl = document.getElementById('remainingSlots');
@@ -122,6 +126,38 @@ const playEventSound = (type) => {
     osc.start(startAt);
     osc.stop(endAt);
   });
+};
+
+const ensureCountDefaults = () => {
+  config.counts.carEntries = config.counts.carEntries ?? 0;
+  config.counts.carExits = config.counts.carExits ?? 0;
+  config.counts.motorcycleEntries = config.counts.motorcycleEntries ?? 0;
+  config.counts.motorcycleExits = config.counts.motorcycleExits ?? 0;
+};
+
+const classifyVehicleType = (track) => (track.className === 'motorcycle' ? 'motorcycle' : 'car');
+
+const syncTypedCountsWithTotals = () => {
+  ensureCountDefaults();
+  const normalizePair = (totalKey, carKey, motoKey) => {
+    const total = Math.max(0, config.counts[totalKey] ?? 0);
+    let car = Math.max(0, config.counts[carKey] ?? 0);
+    let moto = Math.max(0, config.counts[motoKey] ?? 0);
+    const typedTotal = car + moto;
+    if (typedTotal > total) {
+      const overflow = typedTotal - total;
+      const reduceCar = Math.min(car, overflow);
+      car -= reduceCar;
+      moto = Math.max(0, moto - (overflow - reduceCar));
+    } else if (typedTotal < total) {
+      car += total - typedTotal;
+    }
+    config.counts[carKey] = car;
+    config.counts[motoKey] = moto;
+  };
+
+  normalizePair('entries', 'carEntries', 'motorcycleEntries');
+  normalizePair('exits', 'carExits', 'motorcycleExits');
 };
 
 const maxNormal = 112;
@@ -312,8 +348,13 @@ const updateLineStatus = () => {
 };
 
 const updateCountsUI = () => {
+  syncTypedCountsWithTotals();
   entriesEl.textContent = config.counts.entries;
   exitsEl.textContent = config.counts.exits;
+  if (carEntriesEl) carEntriesEl.textContent = config.counts.carEntries;
+  if (carExitsEl) carExitsEl.textContent = config.counts.carExits;
+  if (motorcycleEntriesEl) motorcycleEntriesEl.textContent = config.counts.motorcycleEntries;
+  if (motorcycleExitsEl) motorcycleExitsEl.textContent = config.counts.motorcycleExits;
   if (manualEntriesInput) manualEntriesInput.value = String(config.counts.entries);
   if (manualExitsInput) manualExitsInput.value = String(config.counts.exits);
 
@@ -400,6 +441,7 @@ const applyConfig = (loaded) => {
     };
   }
   config = merged;
+  ensureCountDefaults();
   persistConfig();
 };
 
@@ -1031,6 +1073,11 @@ const processFrame = async () => {
     if ((crossedEntryLine || enteredEntryArea) && !track.counted?.entry) {
       track.counted.entry = true;
       config.counts.entries += 1;
+      if (classifyVehicleType(track) === 'motorcycle') {
+        config.counts.motorcycleEntries += 1;
+      } else {
+        config.counts.carEntries += 1;
+      }
       addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
       playEventSound('entry');
       handlePlateCheck(track, 'entrada');
@@ -1042,6 +1089,11 @@ const processFrame = async () => {
     if ((crossedExitLine || enteredExitArea) && !track.counted?.exit && !duplicateExit) {
       track.counted.exit = true;
       config.counts.exits += 1;
+      if (classifyVehicleType(track) === 'motorcycle') {
+        config.counts.motorcycleExits += 1;
+      } else {
+        config.counts.carExits += 1;
+      }
       registerExitEvent(track, nowMs);
       addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
       playEventSound('exit');
@@ -1224,6 +1276,10 @@ if (startPreviewBtn) {
 resetCountsBtn.addEventListener('click', () => {
   config.counts.entries = 0;
   config.counts.exits = 0;
+  config.counts.carEntries = 0;
+  config.counts.carExits = 0;
+  config.counts.motorcycleEntries = 0;
+  config.counts.motorcycleExits = 0;
   config.counts.priorityAdjustments = 0;
   config.counts.mrCount = 0;
   config.log = [];
