@@ -34,6 +34,7 @@ const setExitLineBtn = document.getElementById('setExitLine');
 const setRoiBtn = document.getElementById('setRoi');
 const setEntryAreaBtn = document.getElementById('setEntryArea');
 const setExitAreaBtn = document.getElementById('setExitArea');
+const toggleFullscreenBtn = document.getElementById('toggleFullscreen');
 const startPreviewBtn = document.getElementById('startPreview');
 const toggleCountingBtn = document.getElementById('toggleCounting');
 const resetCountsBtn = document.getElementById('resetCounts');
@@ -59,6 +60,9 @@ const cameraStatus = document.getElementById('cameraStatus');
 const refreshCamerasBtn = document.getElementById('refreshCameras');
 const networkCameraUrlInput = document.getElementById('networkCameraUrl');
 const setNetworkCameraBtn = document.getElementById('setNetworkCamera');
+const fsCarEntriesEl = document.getElementById('fsCarEntries');
+const fsCarExitsEl = document.getElementById('fsCarExits');
+const fsOccupancyEl = document.getElementById('fsOccupancy');
 
 const tracker = new SimpleTracker();
 
@@ -258,6 +262,14 @@ const setPlateStatus = (text, plate = null) => {
   }
 };
 
+const isVideoFullscreen = () =>
+  document.fullscreenElement === videoWrapper || document.webkitFullscreenElement === videoWrapper;
+
+const updateFullscreenButtonLabel = () => {
+  if (!toggleFullscreenBtn) return;
+  toggleFullscreenBtn.textContent = isVideoFullscreen() ? 'Sair de ecrã inteiro' : 'Ver em ecrã inteiro';
+};
+
 const normalizePlateValue = (value) => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 const extractPlateCandidate = (rawText) => {
@@ -353,6 +365,8 @@ const updateCountsUI = () => {
   exitsEl.textContent = config.counts.exits;
   if (carEntriesEl) carEntriesEl.textContent = config.counts.carEntries;
   if (carExitsEl) carExitsEl.textContent = config.counts.carExits;
+  if (fsCarEntriesEl) fsCarEntriesEl.textContent = config.counts.carEntries;
+  if (fsCarExitsEl) fsCarExitsEl.textContent = config.counts.carExits;
   if (motorcycleEntriesEl) motorcycleEntriesEl.textContent = config.counts.motorcycleEntries;
   if (motorcycleExitsEl) motorcycleExitsEl.textContent = config.counts.motorcycleExits;
   if (manualEntriesInput) manualEntriesInput.value = String(config.counts.entries);
@@ -365,6 +379,7 @@ const updateCountsUI = () => {
   const remainingSlots = Math.max(0, maxNormal - occupancyNormal);
 
   occupancyEl.textContent = occupancy;
+  if (fsOccupancyEl) fsOccupancyEl.textContent = occupancy;
   occupancyNormalEl.textContent = occupancyNormal;
   occupancyMREl.textContent = occupancyMR;
   if (remainingSlotsEl) remainingSlotsEl.textContent = remainingSlots;
@@ -1261,6 +1276,28 @@ if (setExitAreaBtn) {
   setExitAreaBtn.addEventListener('click', () => setupDrawing('exitArea'));
 }
 
+if (toggleFullscreenBtn) {
+  toggleFullscreenBtn.addEventListener('click', async () => {
+    try {
+      if (isVideoFullscreen()) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
+      } else if (videoWrapper.requestFullscreen) {
+        await videoWrapper.requestFullscreen();
+      } else if (videoWrapper.webkitRequestFullscreen) {
+        videoWrapper.webkitRequestFullscreen();
+      }
+    } catch (error) {
+      console.warn('Não foi possível alternar para ecrã inteiro.', error);
+    } finally {
+      updateFullscreenButtonLabel();
+    }
+  });
+}
+
 toggleCountingBtn.addEventListener('click', toggleCounting);
 
 if (startPreviewBtn) {
@@ -1418,6 +1455,9 @@ window.addEventListener('orientationchange', handleViewportChange);
 if (screen.orientation?.addEventListener) {
   screen.orientation.addEventListener('change', handleViewportChange);
 }
+
+document.addEventListener('fullscreenchange', updateFullscreenButtonLabel);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButtonLabel);
 if (remotePreview) {
   remotePreview.addEventListener('load', configureCanvas);
 }
@@ -1457,6 +1497,7 @@ loadConfig().then(() => {
   }
   updateCountsUI();
   updateLineStatus();
+  updateFullscreenButtonLabel();
   updateCameraSelect();
   fetchRemoteDevices();
 });

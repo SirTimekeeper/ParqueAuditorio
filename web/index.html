@@ -24,6 +24,11 @@
         <img id="remotePreview" alt="Pré-visualização remota" />
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
+        <div id="fullscreenStats" class="fullscreen-stats" aria-live="polite">
+          <div><span>Entradas carros</span><strong id="fsCarEntries">0</strong></div>
+          <div><span>Saídas carros</span><strong id="fsCarExits">0</strong></div>
+          <div><span>Ocupação total</span><strong id="fsOccupancy">0</strong></div>
+        </div>
       </div>
       <div id="previewStatus" class="preview-status">A configurar: este dispositivo</div>
       <div class="controls">
@@ -32,6 +37,7 @@
         <button id="setEntryArea">Definir Área de Entrada</button>
         <button id="setExitArea">Definir Área de Saída</button>
         <button id="setRoi">Definir Zona ROI</button>
+        <button id="toggleFullscreen" class="ghost">Ver em ecrã inteiro</button>
         <button id="startPreview" class="ghost">Ligar câmara</button>
         <button id="toggleCounting">Iniciar Contagem</button>
         <button id="resetCounts" class="danger">Reset Contagens</button>
