@@ -116,7 +116,7 @@
     <aside class="panel">
       <section class="card counts-card">
         <h2>Contagens</h2>
-        <div class="metrics">
+        <div class="metrics primary">
           <div>
             <span>Entradas</span>
             <strong id="entries">0</strong>
@@ -126,24 +126,8 @@
             <strong id="exits">0</strong>
           </div>
           <div>
-            <span>Ocupação atual</span>
+            <span>Ocupação total</span>
             <strong id="occupancy">0</strong>
-          </div>
-          <div>
-            <span>Entradas carros</span>
-            <strong id="carEntries">0</strong>
-          </div>
-          <div>
-            <span>Saídas carros</span>
-            <strong id="carExits">0</strong>
-          </div>
-          <div>
-            <span>Entradas motas</span>
-            <strong id="motorcycleEntries">0</strong>
-          </div>
-          <div>
-            <span>Saídas motas</span>
-            <strong id="motorcycleExits">0</strong>
           </div>
         </div>
         <div class="manual-counts">
@@ -156,15 +140,51 @@
             <input id="manualExitsInput" type="number" min="0" step="1" value="0" />
           </label>
         </div>
-        <div class="capacity">
-          <p>Capacidade normal: <strong>112</strong></p>
-          <p>Lugares disponíveis até 112: <strong id="remainingSlots">112</strong></p>
-          <p>Capacidade MR: <strong>4</strong></p>
-          <p>Ocupação normal: <strong id="occupancyNormal">0</strong></p>
-          <p>Ocupação MR: <strong id="occupancyMR">0</strong></p>
-          <div class="warnings">
-            <span id="warningFull" class="warning">Lotação atingida</span>
-            <span id="warningMR" class="warning">MR cheia</span>
+        <div class="capacity metrics secondary">
+          <div>
+            <span>Capacidade</span>
+            <strong>112</strong>
+          </div>
+          <div>
+            <span>Lugares disponíveis</span>
+            <strong id="remainingSlots">112</strong>
+          </div>
+          <div>
+            <span>Capacidade MR</span>
+            <strong>4</strong>
+          </div>
+          <div>
+            <span>Ocupação normal</span>
+            <strong id="occupancyNormal">0</strong>
+          </div>
+          <div>
+            <span>Ocupação MR</span>
+            <strong id="occupancyMR">0</strong>
+          </div>
+        </div>
+        <div class="warnings">
+          <span id="warningFull" class="warning">Lotação atingida</span>
+          <span id="warningMR" class="warning">MR cheia</span>
+        </div>
+        <div class="vehicle-metrics">
+          <h3>Movimento de carros e motas</h3>
+          <div class="metrics secondary">
+            <div>
+              <span>Entradas carros</span>
+              <strong id="carEntries">0</strong>
+            </div>
+            <div>
+              <span>Saídas carros</span>
+              <strong id="carExits">0</strong>
+            </div>
+            <div>
+              <span>Entradas motas</span>
+              <strong id="motorcycleEntries">0</strong>
+            </div>
+            <div>
+              <span>Saídas motas</span>
+              <strong id="motorcycleExits">0</strong>
+            </div>
           </div>
         </div>
       </section>

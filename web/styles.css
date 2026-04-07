@@ -260,6 +260,10 @@ canvas,
   gap: 1rem;
 }
 
+.metrics.secondary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .metrics div {
   background: #f2f5ff;
   padding: 0.75rem;
@@ -275,11 +279,6 @@ canvas,
 
 .metrics strong {
   font-size: 1.4rem;
-}
-
-.capacity p {
-  color: var(--muted);
-  margin-bottom: 0.4rem;
 }
 
 .manual-counts {
@@ -320,6 +319,16 @@ canvas,
 
 .warning.active {
   display: inline-flex;
+}
+
+.vehicle-metrics {
+  border-top: 1px solid #e5e9f2;
+  padding-top: 0.75rem;
+}
+
+.vehicle-metrics h3 {
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .note {
@@ -497,6 +506,10 @@ canvas,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .metrics.secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .line-status {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -559,6 +572,10 @@ canvas,
   }
 
   .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics.secondary {
     grid-template-columns: 1fr;
   }
 
