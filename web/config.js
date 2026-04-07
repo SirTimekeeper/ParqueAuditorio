@@ -12,6 +12,10 @@ export const defaultConfig = {
   counts: {
     entries: 0,
     exits: 0,
+    carEntries: 0,
+    carExits: 0,
+    motorcycleEntries: 0,
+    motorcycleExits: 0,
     priorityAdjustments: 0,
     mrCount: 0
   },
