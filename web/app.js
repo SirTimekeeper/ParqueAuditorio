@@ -372,7 +372,7 @@ const updateCountsUI = () => {
   if (manualEntriesInput) manualEntriesInput.value = String(config.counts.entries);
   if (manualExitsInput) manualExitsInput.value = String(config.counts.exits);
 
-  const rawOccupancy = config.counts.entries - config.counts.exits - config.counts.priorityAdjustments;
+  const rawOccupancy = config.counts.carEntries - config.counts.carExits - config.counts.priorityAdjustments;
   const occupancy = Math.max(0, rawOccupancy);
   const occupancyMR = Math.min(config.counts.mrCount, occupancy, maxMR);
   const occupancyNormal = Math.max(0, occupancy - occupancyMR);
