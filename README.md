@@ -5,6 +5,7 @@ Web app para detetar e contar entradas/saídas de automóveis num parque, com pr
 ## Requisitos
 - Node.js 18+ (recomendado)
 - Navegador com suporte a `getUserMedia`
+- `ffmpeg` instalado no servidor (necessário para câmaras RTSP)
 
 ## Como correr
 
@@ -27,6 +28,11 @@ npm start
 ## Como dar permissões de câmara
 - Ao abrir a página, o navegador irá pedir acesso à câmara.
 - Se negar, o estado mostrará erro. Volte a permitir nas definições do navegador.
+
+## Câmara RTSP
+- No campo **Endereço da câmara por rede (HTTP/RTSP)**, pode usar um URL `rtsp://...`.
+- A app cria uma sessão RTSP no backend e converte os frames para JPEG para visualização no browser.
+- Para RTSP, o OCR de matrículas fica indisponível (apenas contagem).
 
 ## Como desenhar linhas/zonas
 1. Clique em **Definir Linha de Entrada** e desenhe a linha (clique/arraste).

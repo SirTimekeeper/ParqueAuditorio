@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const { spawn } = require('child_process');
 const { readConfig, writeConfig, defaultConfig } = require('./storage');
 
 const app = express();
@@ -13,6 +14,99 @@ app.use(express.json({ limit: '5mb' }));
 app.use(express.static(staticDir));
 
 const devices = new Map();
+const rtspSessions = new Map();
+const RTSP_SESSION_TTL_MS = 60_000;
+
+const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
+
+const stopRtspSession = (sessionId) => {
+  const session = rtspSessions.get(sessionId);
+  if (!session) return;
+  if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
+  if (session.process && !session.process.killed) {
+    session.process.kill('SIGTERM');
+  }
+  rtspSessions.delete(sessionId);
+};
+
+const scheduleRtspCleanup = (sessionId) => {
+  const session = rtspSessions.get(sessionId);
+  if (!session) return;
+  if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
+  session.cleanupTimer = setTimeout(() => {
+    stopRtspSession(sessionId);
+  }, RTSP_SESSION_TTL_MS);
+};
+
+const startRtspSession = (url) => {
+  const sessionId = createRtspSessionId();
+  const ffmpegArgs = [
+    '-rtsp_transport',
+    'tcp',
+    '-i',
+    url,
+    '-an',
+    '-vf',
+    'fps=8',
+    '-f',
+    'image2pipe',
+    '-vcodec',
+    'mjpeg',
+    'pipe:1'
+  ];
+  const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const session = {
+    id: sessionId,
+    url,
+    process: ffmpeg,
+    latestFrame: null,
+    latestFrameAt: 0,
+    lastError: null,
+    buffer: Buffer.alloc(0),
+    cleanupTimer: null
+  };
+  rtspSessions.set(sessionId, session);
+  scheduleRtspCleanup(sessionId);
+
+  ffmpeg.stdout.on('data', (chunk) => {
+    const current = rtspSessions.get(sessionId);
+    if (!current) return;
+    current.buffer = Buffer.concat([current.buffer, chunk]);
+    let start = current.buffer.indexOf(Buffer.from([0xff, 0xd8]));
+    let end = current.buffer.indexOf(Buffer.from([0xff, 0xd9]), start + 2);
+
+    while (start !== -1 && end !== -1) {
+      const frame = current.buffer.subarray(start, end + 2);
+      current.latestFrame = frame;
+      current.latestFrameAt = Date.now();
+      current.buffer = current.buffer.subarray(end + 2);
+      start = current.buffer.indexOf(Buffer.from([0xff, 0xd8]));
+      end = current.buffer.indexOf(Buffer.from([0xff, 0xd9]), start + 2);
+    }
+  });
+
+  ffmpeg.stderr.on('data', (chunk) => {
+    const current = rtspSessions.get(sessionId);
+    if (!current) return;
+    current.lastError = chunk.toString();
+  });
+
+  ffmpeg.on('close', (code) => {
+    const current = rtspSessions.get(sessionId);
+    if (!current) return;
+    if (code !== 0 && !current.lastError) {
+      current.lastError = `ffmpeg terminou com código ${code}`;
+    }
+  });
+
+  ffmpeg.on('error', (error) => {
+    const current = rtspSessions.get(sessionId);
+    if (!current) return;
+    current.lastError = error.message;
+  });
+
+  return sessionId;
+};
 
 const upsertDevice = (id, payload = {}) => {
   if (!id) return null;
@@ -109,6 +203,37 @@ app.get('/api/devices/:id/snapshot', (req, res) => {
     height: device.height ?? null,
     lastSeen: device.lastSeen
   });
+});
+
+app.post('/api/rtsp/session', (req, res) => {
+  const url = req.body?.url?.trim();
+  if (!url || !url.startsWith('rtsp://')) {
+    res.status(400).json({ ok: false, error: 'invalid_rtsp_url' });
+    return;
+  }
+  const sessionId = startRtspSession(url);
+  res.json({ ok: true, sessionId });
+});
+
+app.get('/api/rtsp/:id/frame.jpg', (req, res) => {
+  const session = rtspSessions.get(req.params.id);
+  if (!session) {
+    res.status(404).json({ ok: false, error: 'session_not_found' });
+    return;
+  }
+  scheduleRtspCleanup(req.params.id);
+  if (!session.latestFrame) {
+    res.status(503).json({ ok: false, error: session.lastError ?? 'frame_not_ready' });
+    return;
+  }
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(session.latestFrame);
+});
+
+app.delete('/api/rtsp/:id', (req, res) => {
+  stopRtspSession(req.params.id);
+  res.json({ ok: true });
 });
 
 app.get('*', (req, res) => {
