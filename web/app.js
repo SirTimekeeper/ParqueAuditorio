@@ -95,6 +95,7 @@ let snapshotInterval = null;
 let remoteSnapshotInterval = null;
 let rtspFrameInterval = null;
 let activeRtspSessionId = null;
+let activeRtspObjectUrl = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
@@ -626,6 +627,10 @@ const stopRtspFeed = async () => {
     }
   }
   activeRtspSessionId = null;
+  if (activeRtspObjectUrl) {
+    URL.revokeObjectURL(activeRtspObjectUrl);
+    activeRtspObjectUrl = null;
+  }
 };
 
 const stopCamera = () => {
@@ -642,6 +647,9 @@ const stopCamera = () => {
   if (remotePreview) {
     remotePreview.removeAttribute('src');
     remotePreview.style.display = 'none';
+  }
+  if (previewStatus) {
+    previewStatus.style.color = '';
   }
   video.style.display = 'block';
   stopRtspFeed();
@@ -927,6 +935,12 @@ const updatePreviewStatus = () => {
   }
 };
 
+const setRtspPreviewMessage = (text, isError = false) => {
+  if (!previewStatus) return;
+  previewStatus.textContent = text;
+  previewStatus.style.color = isError ? '#e23434' : '';
+};
+
 const showLocalPreview = () => {
   activePreviewMode = 'local';
   selectedRemoteDevice = null;
@@ -998,13 +1012,39 @@ const startCamera = async () => {
       video.removeAttribute('src');
       video.style.display = 'none';
       remotePreview.style.display = 'block';
-      const updateRtspImage = () => {
+      setRtspPreviewMessage('A ligar ao stream RTSP...');
+      let rtspFailures = 0;
+      const updateRtspImage = async () => {
         if (!activeRtspSessionId) return;
-        remotePreview.src = `/api/rtsp/${activeRtspSessionId}/frame.jpg?t=${Date.now()}`;
+        try {
+          const response = await fetch(`/api/rtsp/${activeRtspSessionId}/frame.jpg?t=${Date.now()}`, { cache: 'no-store' });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            rtspFailures += 1;
+            if (rtspFailures > 8) {
+              const detail = payload.error ? ` (${payload.error})` : '';
+              setRtspPreviewMessage(`Sem frames RTSP${detail}. Verifique URL/credenciais.`, true);
+            }
+            return;
+          }
+          const frameBlob = await response.blob();
+          if (activeRtspObjectUrl) {
+            URL.revokeObjectURL(activeRtspObjectUrl);
+          }
+          activeRtspObjectUrl = URL.createObjectURL(frameBlob);
+          remotePreview.src = activeRtspObjectUrl;
+          rtspFailures = 0;
+          updatePreviewStatus();
+        } catch {
+          rtspFailures += 1;
+          if (rtspFailures > 8) {
+            setRtspPreviewMessage('Falha ao receber stream RTSP. Verifique ligação de rede.', true);
+          }
+        }
       };
       if (rtspFrameInterval) clearInterval(rtspFrameInterval);
       rtspFrameInterval = setInterval(updateRtspImage, 250);
-      updateRtspImage();
+      await updateRtspImage();
       configureCanvas();
       await updateCameraSelect();
       setStatus('Câmara RTSP pronta');
