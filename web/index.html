@@ -50,6 +50,7 @@
             <option value="auto">Automática</option>
             <option value="user">Frontal</option>
             <option value="environment">Traseira</option>
+            <option value="rtsp">RTSP</option>
           </select>
           <span id="cameraStatus" class="camera-status">Automática</span>
         </label>
@@ -76,8 +77,8 @@
       </div>
       <div class="controls secondary network-controls">
         <label class="network-input">
-          Endereço da câmara por rede
-          <input id="networkCameraUrl" type="url" placeholder="http://192.168.1.20:8080/stream" />
+          Endereço da câmara por rede (HTTP/RTSP)
+          <input id="networkCameraUrl" type="text" placeholder="rtsp://utilizador:senha@192.168.1.20:554/stream" />
         </label>
         <button id="setNetworkCamera" class="ghost">Usar endereço</button>
       </div>

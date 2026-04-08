@@ -93,6 +93,8 @@ let roiDrawing = null;
 let animationHandle = null;
 let snapshotInterval = null;
 let remoteSnapshotInterval = null;
+let rtspFrameInterval = null;
+let activeRtspSessionId = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
@@ -606,6 +608,26 @@ const configureCanvas = () => {
   drawOverlay();
 };
 
+const hasLocalFeed = () => {
+  if (video.srcObject) return true;
+  return Boolean(config.camera?.mode === 'rtsp' && activeRtspSessionId);
+};
+
+const stopRtspFeed = async () => {
+  if (rtspFrameInterval) {
+    clearInterval(rtspFrameInterval);
+    rtspFrameInterval = null;
+  }
+  if (activeRtspSessionId) {
+    try {
+      await fetch(`/api/rtsp/${activeRtspSessionId}`, { method: 'DELETE' });
+    } catch (error) {
+      console.warn('Falha ao terminar sessão RTSP.', error);
+    }
+  }
+  activeRtspSessionId = null;
+};
+
 const stopCamera = () => {
   if (video.srcObject) {
     const tracks = video.srcObject.getTracks();
@@ -617,6 +639,12 @@ const stopCamera = () => {
     video.removeAttribute('src');
     video.load();
   }
+  if (remotePreview) {
+    remotePreview.removeAttribute('src');
+    remotePreview.style.display = 'none';
+  }
+  video.style.display = 'block';
+  stopRtspFeed();
   if (snapshotInterval) {
     clearInterval(snapshotInterval);
     snapshotInterval = null;
@@ -792,7 +820,8 @@ const updateCameraSelect = async () => {
     { value: 'auto', label: 'Automática' },
     { value: 'user', label: 'Frontal' },
     { value: 'environment', label: 'Traseira' },
-    { value: 'network', label: 'Endereço de rede' }
+    { value: 'network', label: 'Endereço de rede (HTTP)' },
+    { value: 'rtsp', label: 'RTSP' }
   ].forEach((item) => cameraSelect.appendChild(buildCameraOption(item.value, item.label)));
 
   cameras.forEach((camera, index) => {
@@ -804,7 +833,7 @@ const updateCameraSelect = async () => {
   let targetValue = 'auto';
   if (cameraConfig.mode === 'device' && cameraConfig.deviceId && availableIds.includes(cameraConfig.deviceId)) {
     targetValue = `device:${cameraConfig.deviceId}`;
-  } else if (cameraConfig.mode === 'user' || cameraConfig.mode === 'environment' || cameraConfig.mode === 'network') {
+  } else if (cameraConfig.mode === 'user' || cameraConfig.mode === 'environment' || cameraConfig.mode === 'network' || cameraConfig.mode === 'rtsp') {
     targetValue = cameraConfig.mode;
   }
   cameraSelect.value = targetValue;
@@ -953,10 +982,41 @@ const startCamera = async () => {
     stopCamera();
     const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null, networkUrl: '' };
 
+    if (cameraConfig.mode === 'rtsp' && cameraConfig.networkUrl) {
+      const response = await fetch('/api/rtsp/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cameraConfig.networkUrl })
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? 'rtsp_session_error');
+      }
+      const payload = await response.json();
+      activeRtspSessionId = payload.sessionId;
+      video.srcObject = null;
+      video.removeAttribute('src');
+      video.style.display = 'none';
+      remotePreview.style.display = 'block';
+      const updateRtspImage = () => {
+        if (!activeRtspSessionId) return;
+        remotePreview.src = `/api/rtsp/${activeRtspSessionId}/frame.jpg?t=${Date.now()}`;
+      };
+      if (rtspFrameInterval) clearInterval(rtspFrameInterval);
+      rtspFrameInterval = setInterval(updateRtspImage, 250);
+      updateRtspImage();
+      configureCanvas();
+      await updateCameraSelect();
+      setStatus('Câmara RTSP pronta');
+      return;
+    }
+
     if (cameraConfig.mode === 'network' && cameraConfig.networkUrl) {
       video.srcObject = null;
       video.src = cameraConfig.networkUrl;
       video.crossOrigin = 'anonymous';
+      remotePreview.style.display = 'none';
+      video.style.display = 'block';
       await video.play();
       configureCanvas();
       await updateCameraSelect();
@@ -966,6 +1026,8 @@ const startCamera = async () => {
     }
 
     video.removeAttribute('src');
+    remotePreview.style.display = 'none';
+    video.style.display = 'block';
     const stream = await navigator.mediaDevices.getUserMedia(getCameraConstraints());
     video.srcObject = stream;
     await video.play();
@@ -976,7 +1038,7 @@ const startCamera = async () => {
     startSnapshotLoop();
   } catch (error) {
     setStatus('Erro ao aceder à câmara', true);
-    alert('Não foi possível aceder à câmara. Verifique permissões, URL da câmara de rede ou use HTTPS/localhost.');
+    alert('Não foi possível aceder à câmara. Verifique permissões, URL da câmara de rede/RTSP (e ffmpeg no servidor) ou use HTTPS/localhost.');
     throw error;
   }
 };
@@ -1093,7 +1155,8 @@ const handlePlateCheck = (track, direction) => {
 const processFrame = async () => {
   if (!counting) return;
   const nowMs = Date.now();
-  const detections = await detectVehicles(video, { minScore: 0.55 });
+  const source = config.camera?.mode === 'rtsp' ? remotePreview : video;
+  const detections = await detectVehicles(source, { minScore: 0.55 });
   const frame = Date.now();
   const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
   const tracks = tracker.update(filtered);
@@ -1168,10 +1231,14 @@ const toggleCounting = async () => {
   }
 
   try {
-    if (!video.srcObject) {
+    if (!hasLocalFeed()) {
       await startCamera();
     }
     await initVision();
+    if (config.camera?.mode === 'rtsp') {
+      plateReady = false;
+      setPlateStatus('OCR indisponível em RTSP');
+    } else {
     try {
       await initPlateRecognition();
       plateReady = true;
@@ -1180,6 +1247,7 @@ const toggleCounting = async () => {
       console.warn('OCR indisponível.', error);
       plateReady = false;
       setPlateStatus('OCR indisponível');
+    }
     }
     counting = true;
     ensureAudioContext();
@@ -1420,7 +1488,7 @@ priorityAddBtn.addEventListener('click', () => {
 });
 
 resolutionSelect.addEventListener('change', async () => {
-  if (video.srcObject) {
+  if (hasLocalFeed()) {
     await startCamera();
   }
 });
@@ -1432,8 +1500,8 @@ cameraSelect.addEventListener('change', async () => {
     config.camera = { mode: 'device', deviceId: value.replace('device:', ''), networkUrl: '' };
   } else if (value === 'user' || value === 'environment') {
     config.camera = { mode: value, deviceId: null, networkUrl: '' };
-  } else if (value === 'network') {
-    config.camera = { mode: 'network', deviceId: null, networkUrl: previousUrl };
+  } else if (value === 'network' || value === 'rtsp') {
+    config.camera = { mode: value, deviceId: null, networkUrl: previousUrl };
   } else {
     config.camera = { mode: 'auto', deviceId: null, networkUrl: '' };
   }
@@ -1442,11 +1510,11 @@ cameraSelect.addEventListener('change', async () => {
     const selectedOption = cameraSelect.options[cameraSelect.selectedIndex];
     cameraStatus.textContent = selectedOption ? selectedOption.textContent : 'Automática';
   }
-  if (value === 'network' && !config.camera.networkUrl) {
-    setStatus('Defina o endereço da câmara de rede.', true);
+  if ((value === 'network' || value === 'rtsp') && !config.camera.networkUrl) {
+    setStatus('Defina o endereço da câmara de rede/RTSP.', true);
     return;
   }
-  if (video.srcObject || value !== 'auto') {
+  if (hasLocalFeed() || value !== 'auto') {
     await startCamera();
   }
 });
@@ -1465,10 +1533,11 @@ if (setNetworkCameraBtn) {
       setStatus('Insira um endereço de rede válido.', true);
       return;
     }
-    config.camera = { mode: 'network', deviceId: null, networkUrl: url };
-    cameraSelect.value = 'network';
+    const isRtsp = url.toLowerCase().startsWith('rtsp://');
+    config.camera = { mode: isRtsp ? 'rtsp' : 'network', deviceId: null, networkUrl: url };
+    cameraSelect.value = isRtsp ? 'rtsp' : 'network';
     if (cameraStatus) {
-      cameraStatus.textContent = 'Endereço de rede';
+      cameraStatus.textContent = isRtsp ? 'RTSP' : 'Endereço de rede (HTTP)';
     }
     persistConfig();
     await startCamera();
@@ -1481,7 +1550,7 @@ const handleViewportChange = () => {
   const currentOrientation = isLandscape();
   if (currentOrientation === lastOrientation) return;
   lastOrientation = currentOrientation;
-  if (!video.srcObject || activePreviewMode !== 'local') return;
+  if (!hasLocalFeed() || activePreviewMode !== 'local') return;
   if (orientationChangeTimeout) clearTimeout(orientationChangeTimeout);
   orientationChangeTimeout = setTimeout(async () => {
     try {
