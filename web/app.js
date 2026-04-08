@@ -63,6 +63,7 @@ const setNetworkCameraBtn = document.getElementById('setNetworkCamera');
 const fsCarEntriesEl = document.getElementById('fsCarEntries');
 const fsCarExitsEl = document.getElementById('fsCarExits');
 const fsOccupancyEl = document.getElementById('fsOccupancy');
+const fsRemainingSlotsEl = document.getElementById('fsRemainingSlots');
 const countsCardEl = document.querySelector('.counts-card');
 
 const tracker = new SimpleTracker();
@@ -384,6 +385,7 @@ const updateCountsUI = () => {
   occupancyNormalEl.textContent = occupancyNormal;
   occupancyMREl.textContent = occupancyMR;
   if (remainingSlotsEl) remainingSlotsEl.textContent = remainingSlots;
+  if (fsRemainingSlotsEl) fsRemainingSlotsEl.textContent = remainingSlots;
 
   warningFull.classList.toggle('active', occupancyNormal >= maxNormal);
   warningMR.classList.toggle('active', occupancyMR >= maxMR);
