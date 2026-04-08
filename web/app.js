@@ -40,6 +40,8 @@ const toggleCountingBtn = document.getElementById('toggleCounting');
 const resetCountsBtn = document.getElementById('resetCounts');
 const manualEntriesInput = document.getElementById('manualEntriesInput');
 const manualExitsInput = document.getElementById('manualExitsInput');
+const manualRemainingSlotsInput = document.getElementById('manualRemainingSlotsInput');
+const applyRemainingSlotsBtn = document.getElementById('applyRemainingSlots');
 
 const addPriorityBtn = document.getElementById('addPriority');
 const removePriorityBtn = document.getElementById('removePriority');
@@ -386,6 +388,7 @@ const updateCountsUI = () => {
   occupancyMREl.textContent = occupancyMR;
   if (remainingSlotsEl) remainingSlotsEl.textContent = remainingSlots;
   if (fsRemainingSlotsEl) fsRemainingSlotsEl.textContent = remainingSlots;
+  if (manualRemainingSlotsInput) manualRemainingSlotsInput.value = String(remainingSlots);
 
   warningFull.classList.toggle('active', occupancyNormal >= maxNormal);
   warningMR.classList.toggle('active', occupancyMR >= maxMR);
@@ -1360,6 +1363,27 @@ manualExitsInput?.addEventListener('change', () => {
   config.counts.exits = Math.min(requestedExits, maxExits);
   manualExitsInput.value = String(config.counts.exits);
   addLog({ time: new Date().toLocaleTimeString(), type: 'Saída manual', detail: String(config.counts.exits) });
+  persistConfig();
+});
+
+applyRemainingSlotsBtn?.addEventListener('click', () => {
+  const value = Number.parseInt(manualRemainingSlotsInput?.value ?? '', 10);
+  const requestedRemainingSlots = Number.isFinite(value) ? value : maxNormal;
+  const remainingSlots = Math.max(0, Math.min(maxNormal, requestedRemainingSlots));
+  const targetOccupancyNormal = maxNormal - remainingSlots;
+  const targetOccupancyMR = Math.min(config.counts.mrCount, maxMR);
+  const targetOccupancy = targetOccupancyNormal + targetOccupancyMR;
+  const requiredEntries = config.counts.exits + config.counts.priorityAdjustments + targetOccupancy;
+
+  config.counts.entries = Math.max(0, requiredEntries);
+  config.counts.carEntries = config.counts.entries;
+  config.counts.motorcycleEntries = 0;
+
+  addLog({
+    time: new Date().toLocaleTimeString(),
+    type: 'Lugares vazios',
+    detail: String(remainingSlots)
+  });
   persistConfig();
 });
 
