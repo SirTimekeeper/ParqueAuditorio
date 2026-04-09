@@ -71,6 +71,7 @@ const countsCardEl = document.querySelector('.counts-card');
 const tracker = new SimpleTracker();
 
 const DEVICE_ID_KEY = 'parque-auditorio-device-id';
+const VEHICLE_TICKET_COUNTER_KEY = 'parque-auditorio-vehicle-ticket-counter';
 const getOrCreateDeviceId = () => {
   const stored = localStorage.getItem(DEVICE_ID_KEY);
   if (stored) return stored;
@@ -81,6 +82,44 @@ const getOrCreateDeviceId = () => {
 
 const localDeviceId = getOrCreateDeviceId();
 const localDeviceLabel = navigator.userAgentData?.platform || navigator.platform || 'Dispositivo local';
+const plateToVehicleTicket = new Map();
+const activeVehicleTickets = [];
+
+const getNextVehicleTicketNumber = () => {
+  const stored = Number(localStorage.getItem(VEHICLE_TICKET_COUNTER_KEY));
+  if (Number.isFinite(stored) && stored > 0) return Math.floor(stored);
+  return 1;
+};
+
+const saveNextVehicleTicketNumber = (value) => {
+  localStorage.setItem(VEHICLE_TICKET_COUNTER_KEY, String(value));
+};
+
+const issueVehicleTicket = () => {
+  const nextNumber = getNextVehicleTicketNumber();
+  saveNextVehicleTicketNumber(nextNumber + 1);
+  return `V${String(nextNumber).padStart(5, '0')}`;
+};
+
+const rememberActiveVehicleTicket = (ticket) => {
+  if (!ticket) return;
+  if (!activeVehicleTickets.includes(ticket)) {
+    activeVehicleTickets.push(ticket);
+  }
+};
+
+const releaseActiveVehicleTicket = (ticket) => {
+  if (!ticket) return;
+  const index = activeVehicleTickets.indexOf(ticket);
+  if (index >= 0) {
+    activeVehicleTickets.splice(index, 1);
+  }
+};
+
+const getNextActiveVehicleTicket = () => {
+  if (!activeVehicleTickets.length) return null;
+  return activeVehicleTickets[0] ?? null;
+};
 
 let config = { ...defaultConfig };
 let counting = false;
@@ -1198,7 +1237,7 @@ const registerExitEvent = (track, nowMs) => {
   pruneOldExitEvents(nowMs);
 };
 
-const handlePlateCheck = (track, direction) => {
+const handlePlateCheck = (track, direction, fallbackTicket = null) => {
   if (!plateReady) {
     setPlateStatus('OCR indisponível');
     return;
@@ -1234,6 +1273,22 @@ const handlePlateCheck = (track, direction) => {
       type: 'Matrícula detetada',
       detail: `${plate} (${direction})`
     });
+    if (direction === 'entrada') {
+      const ticketToRemember = fallbackTicket || track.vehicleTicket || issueVehicleTicket();
+      track.vehicleTicket = ticketToRemember;
+      plateToVehicleTicket.set(plate, ticketToRemember);
+    } else if (direction === 'saida') {
+      const rememberedTicket = plateToVehicleTicket.get(plate) || fallbackTicket || track.vehicleTicket || getNextActiveVehicleTicket();
+      if (rememberedTicket) {
+        releaseActiveVehicleTicket(rememberedTicket);
+        plateToVehicleTicket.delete(plate);
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          type: 'Saída associada',
+          detail: `${rememberedTicket} · ${plate}`
+        });
+      }
+    }
     if (isPriority) {
       if (direction === 'entrada') {
         config.counts.priorityAdjustments += 1;
@@ -1267,15 +1322,18 @@ const processFrame = async () => {
     const enteredEntryArea = localSettings.entryArea && enteredArea(track, localSettings.entryArea);
     if ((crossedEntryLine || enteredEntryArea) && !track.counted?.entry) {
       track.counted.entry = true;
+      const vehicleTicket = track.vehicleTicket || issueVehicleTicket();
+      track.vehicleTicket = vehicleTicket;
+      rememberActiveVehicleTicket(vehicleTicket);
       config.counts.entries += 1;
       if (classifyVehicleType(track) === 'motorcycle') {
         config.counts.motorcycleEntries += 1;
       } else {
         config.counts.carEntries += 1;
       }
-      addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `#${track.id}` });
+      addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `${vehicleTicket} · #${track.id}` });
       playEventSound('entry');
-      handlePlateCheck(track, 'entrada');
+      handlePlateCheck(track, 'entrada', vehicleTicket);
     }
     const crossedExitLine =
       exitLine && withinExitArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' });
@@ -1283,6 +1341,9 @@ const processFrame = async () => {
     const duplicateExit = shouldSkipDuplicateExit(track, nowMs);
     if ((crossedExitLine || enteredExitArea) && !track.counted?.exit && !duplicateExit) {
       track.counted.exit = true;
+      const vehicleTicket = track.vehicleTicket || getNextActiveVehicleTicket() || issueVehicleTicket();
+      track.vehicleTicket = vehicleTicket;
+      releaseActiveVehicleTicket(vehicleTicket);
       config.counts.exits += 1;
       if (classifyVehicleType(track) === 'motorcycle') {
         config.counts.motorcycleExits += 1;
@@ -1290,9 +1351,9 @@ const processFrame = async () => {
         config.counts.carExits += 1;
       }
       registerExitEvent(track, nowMs);
-      addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `#${track.id}` });
+      addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `${vehicleTicket} · #${track.id}` });
       playEventSound('exit');
-      handlePlateCheck(track, 'saida');
+      handlePlateCheck(track, 'saida', vehicleTicket);
     }
   });
 
