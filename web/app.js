@@ -103,6 +103,8 @@ let orientationChangeTimeout = null;
 let plateReady = false;
 let plateQueue = Promise.resolve();
 const plateChecks = new Map();
+const ocrIndicators = new Map();
+const OCR_INDICATOR_TTL_MS = 2200;
 let audioContext = null;
 
 const ensureAudioContext = () => {
@@ -305,9 +307,30 @@ const queuePlateTask = (task) => {
     });
 };
 
-const capturePlateCanvas = (track) => {
+const upsertOcrIndicator = (key, region, label = 'OCR') => {
+  if (!region) return;
+  ocrIndicators.set(key, {
+    ...region,
+    label,
+    expiresAt: Date.now() + OCR_INDICATOR_TTL_MS
+  });
+};
+
+const removeOcrIndicator = (key) => {
+  ocrIndicators.delete(key);
+};
+
+const pruneOcrIndicators = () => {
+  const now = Date.now();
+  ocrIndicators.forEach((indicator, key) => {
+    if (indicator.expiresAt <= now) {
+      ocrIndicators.delete(key);
+    }
+  });
+};
+
+const getPlateCropRegion = (track) => {
   if (!video.videoWidth || !video.videoHeight) return null;
-  const scale = 2;
   const plateHeight = track.height * 0.35;
   const plateY = track.y + track.height * 0.55;
   const plateX = track.x;
@@ -317,12 +340,19 @@ const capturePlateCanvas = (track) => {
   const cropWidth = Math.min(video.videoWidth - cropX, Math.floor(plateWidth));
   const cropHeight = Math.min(video.videoHeight - cropY, Math.floor(plateHeight));
   if (cropWidth <= 0 || cropHeight <= 0) return null;
+  return { x: cropX, y: cropY, width: cropWidth, height: cropHeight };
+};
+
+const capturePlateCanvas = (track) => {
+  const region = getPlateCropRegion(track);
+  if (!region) return null;
+  const scale = 2;
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.floor(cropWidth * scale));
-  canvas.height = Math.max(1, Math.floor(cropHeight * scale));
+  canvas.width = Math.max(1, Math.floor(region.width * scale));
+  canvas.height = Math.max(1, Math.floor(region.height * scale));
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
-  ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(video, region.x, region.y, region.width, region.height, 0, 0, canvas.width, canvas.height);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
   for (let i = 0; i < data.length; i += 4) {
@@ -496,6 +526,7 @@ const loadConfig = async () => {
 const drawOverlay = (tracks = []) => {
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, overlay.width, overlay.height);
+  pruneOcrIndicators();
 
   const activeDeviceId = getActiveDeviceId();
   const activeSettings = activeDeviceId ? getDeviceSettings(activeDeviceId) : null;
@@ -554,6 +585,25 @@ const drawOverlay = (tracks = []) => {
     ctx.fillStyle = '#fff';
     ctx.font = '12px sans-serif';
     ctx.fillText(`#${track.id}`, track.x + 4, track.y - 6);
+  });
+
+  ocrIndicators.forEach((indicator) => {
+    const x = Math.max(0, indicator.x);
+    const y = Math.max(0, indicator.y);
+    const width = Math.max(1, indicator.width);
+    const height = Math.max(1, indicator.height);
+    ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.95)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(x, y, width, height);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+    ctx.fillRect(x, Math.max(0, y - 18), Math.max(70, width), 16);
+    ctx.fillStyle = '#fef3c7';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(indicator.label || 'OCR', x + 4, Math.max(12, y - 6));
   });
 
   if (drawingMode === 'entry' && drawingLine) {
@@ -1156,23 +1206,29 @@ const handlePlateCheck = (track, direction) => {
   const key = `${track.id}-${direction}`;
   if (plateChecks.has(key)) return;
   plateChecks.set(key, { status: 'pending' });
+  const cropRegion = getPlateCropRegion(track);
+  upsertOcrIndicator(key, cropRegion, 'OCR: a captar');
   const cropCanvas = capturePlateCanvas(track);
   if (!cropCanvas) {
     setPlateStatus('Recorte indisponível');
     plateChecks.set(key, { status: 'no-crop' });
+    removeOcrIndicator(key);
     return;
   }
   setPlateStatus('A reconhecer...', '...');
+  upsertOcrIndicator(key, cropRegion, 'OCR: a reconhecer');
   queuePlateTask(async () => {
     const rawText = await recognizePlateFromCanvas(cropCanvas);
     const plate = extractPlateCandidate(rawText);
     if (!plate) {
       setPlateStatus('Matrícula não detetada', '-');
       plateChecks.set(key, { status: 'miss' });
+      upsertOcrIndicator(key, cropRegion, 'OCR: sem leitura');
       return;
     }
     const isPriority = isPriorityPlate(plate);
     setPlateStatus(isPriority ? 'Prioritária' : 'Detetada', plate);
+    upsertOcrIndicator(key, cropRegion, `OCR: ${plate}`);
     addLog({
       time: new Date().toLocaleTimeString(),
       type: 'Matrícula detetada',
