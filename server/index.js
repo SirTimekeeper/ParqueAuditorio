@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const { spawn } = require('child_process');
+const ffmpegPath = require('ffmpeg-static');
 const { readConfig, writeConfig, defaultConfig } = require('./storage');
 
 const app = express();
@@ -54,7 +55,8 @@ const startRtspSession = (url) => {
     'mjpeg',
     'pipe:1'
   ];
-  const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const ffmpegExecutable = ffmpegPath || 'ffmpeg';
+  const ffmpeg = spawn(ffmpegExecutable, ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
   const session = {
     id: sessionId,
     url,
