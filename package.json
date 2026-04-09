@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node server/index.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "ffmpeg-static": "^5.2.0"
   }
 }
