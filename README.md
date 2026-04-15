@@ -1,4 +1,4 @@
-# Parque Auditorio - Contagem de Viaturas
+# Parque - Contagem de Viaturas
 
 Web app para detetar e contar entradas/saídas de automóveis num parque, com processamento no browser (TensorFlow.js + COCO-SSD) e backend Node.js (Express) para servir a app e guardar configurações.
 
