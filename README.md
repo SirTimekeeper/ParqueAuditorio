@@ -19,16 +19,16 @@ A app ficará disponível em `http://localhost:3000`.
 > **Nota:** Em dispositivos móveis, a câmara pode exigir HTTPS. Use `localhost` no computador ou sirva via HTTPS num domínio local.
 
 ### Desenvolvimento com HTTPS
-Pode iniciar o servidor em HTTPS definindo caminhos para certificado e chave:
+Pode iniciar o servidor em HTTPS colocando o certificado e a chave em `cert/local.crt` e `cert/local.key`:
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout certs/local.key \
-  -out certs/local.crt \
+  -keyout cert/local.key \
+  -out cert/local.crt \
   -days 365 \
   -subj "/CN=localhost"
 
-HTTPS_KEY_PATH=certs/local.key HTTPS_CERT_PATH=certs/local.crt npm run dev
+npm run dev
 ```
 
 Depois disso, a app ficará disponível em `https://localhost:3000`.
