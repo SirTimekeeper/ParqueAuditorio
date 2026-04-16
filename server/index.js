@@ -1,4 +1,7 @@
 const express = require('express');
+const fs = require('fs');
+const http = require('http');
+const https = require('https');
 const path = require('path');
 const { spawn } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
@@ -9,7 +12,7 @@ const port = process.env.PORT || 3000;
 const rootDir = path.resolve(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
 const webDir = path.join(rootDir, 'web');
-const staticDir = process.env.NODE_ENV === 'production' && require('fs').existsSync(distDir) ? distDir : webDir;
+const staticDir = process.env.NODE_ENV === 'production' && fs.existsSync(distDir) ? distDir : webDir;
 
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(staticDir));
@@ -242,6 +245,28 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(staticDir, 'index.html'));
 });
 
-app.listen(port, () => {
-  console.log(`Servidor a correr em http://localhost:${port}`);
+const getHttpsOptions = () => {
+  const keyPath = process.env.HTTPS_KEY_PATH;
+  const certPath = process.env.HTTPS_CERT_PATH;
+  if (!keyPath || !certPath) return null;
+  try {
+    return {
+      key: fs.readFileSync(path.resolve(keyPath)),
+      cert: fs.readFileSync(path.resolve(certPath))
+    };
+  } catch (error) {
+    console.error('Falha ao ler certificados HTTPS:', error.message);
+    return null;
+  }
+};
+
+const httpsOptions = getHttpsOptions();
+const protocol = httpsOptions ? 'https' : 'http';
+const server = httpsOptions ? https.createServer(httpsOptions, app) : http.createServer(app);
+
+server.listen(port, () => {
+  console.log(`Servidor a correr em ${protocol}://localhost:${port}`);
+  if (!httpsOptions) {
+    console.log('Para ativar HTTPS, defina HTTPS_KEY_PATH e HTTPS_CERT_PATH.');
+  }
 });
