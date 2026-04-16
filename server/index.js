@@ -246,16 +246,18 @@ app.get('*', (req, res) => {
 });
 
 const getHttpsOptions = () => {
-  const keyPath = process.env.HTTPS_KEY_PATH;
-  const certPath = process.env.HTTPS_CERT_PATH;
-  if (!keyPath || !certPath) return null;
+  const keyPath = path.resolve('cert/local.key');
+  const certPath = path.resolve('cert/local.crt');
+
+  if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) return null;
+
   try {
     return {
-      key: fs.readFileSync(path.resolve(keyPath)),
-      cert: fs.readFileSync(path.resolve(certPath))
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath)
     };
   } catch (error) {
-    console.error('Falha ao ler certificados HTTPS:', error.message);
+    console.error('Falha ao ler certificados HTTPS em cert/:', error.message);
     return null;
   }
 };
@@ -267,6 +269,6 @@ const server = httpsOptions ? https.createServer(httpsOptions, app) : http.creat
 server.listen(port, () => {
   console.log(`Servidor a correr em ${protocol}://localhost:${port}`);
   if (!httpsOptions) {
-    console.log('Para ativar HTTPS, defina HTTPS_KEY_PATH e HTTPS_CERT_PATH.');
+    console.log('Para ativar HTTPS, coloque cert/local.key e cert/local.crt.');
   }
 });
