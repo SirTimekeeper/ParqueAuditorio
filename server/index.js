@@ -24,37 +24,8 @@ const MJPEG_BOUNDARY = 'frame';
 const RTSP_FRAME_STALE_MS = 12_000;
 const RTSP_MONITOR_INTERVAL_MS = 3_000;
 const RTSP_RESTART_DELAY_MS = 1_500;
-const RTSP_DEFAULT_PATHS = ['/h264_stream', '/Streaming/Channels/101'];
 
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
-
-const buildRtspUrlCandidates = (rawUrl) => {
-  const candidates = [];
-  const addCandidate = (value) => {
-    if (!value) return;
-    if (!candidates.includes(value)) candidates.push(value);
-  };
-
-  addCandidate(rawUrl);
-
-  try {
-    const parsed = new URL(rawUrl);
-    const hasPath = parsed.pathname && parsed.pathname !== '/';
-    if (!hasPath) {
-      RTSP_DEFAULT_PATHS.forEach((pathName) => {
-        const variant = new URL(rawUrl);
-        variant.pathname = pathName;
-        variant.search = '';
-        variant.hash = '';
-        addCandidate(variant.toString());
-      });
-    }
-  } catch (error) {
-    // URL inválido será validado noutro ponto; aqui só tentamos criar variações úteis.
-  }
-
-  return candidates;
-};
 
 const createRtspFfmpegArgs = (url) => [
   '-fflags',
@@ -88,14 +59,12 @@ const createRtspFfmpegArgs = (url) => [
 const launchRtspFfmpeg = (sessionId) => {
   const session = rtspSessions.get(sessionId);
   if (!session || session.stopping) return;
-  const activeUrl = session.urls[session.urlIndex] || session.url;
 
   const ffmpegExecutable = ffmpegPath || 'ffmpeg';
-  const ffmpeg = spawn(ffmpegExecutable, createRtspFfmpegArgs(activeUrl), { stdio: ['ignore', 'pipe', 'pipe'] });
+  const ffmpeg = spawn(ffmpegExecutable, createRtspFfmpegArgs(session.url), { stdio: ['ignore', 'pipe', 'pipe'] });
   session.process = ffmpeg;
   session.restartTimer = null;
   session.lastStartAt = Date.now();
-  session.url = activeUrl;
   session.buffer = Buffer.alloc(0);
 
   ffmpeg.stdout.on('data', (chunk) => {
@@ -141,9 +110,6 @@ const launchRtspFfmpeg = (sessionId) => {
       current.lastError = `ffmpeg terminou com código ${code}`;
     }
     if (current.stopping) return;
-    if (!current.latestFrameAt && current.urls.length > 1) {
-      current.urlIndex = (current.urlIndex + 1) % current.urls.length;
-    }
     current.restartTimer = setTimeout(() => launchRtspFfmpeg(sessionId), RTSP_RESTART_DELAY_MS);
   });
 
@@ -183,12 +149,9 @@ const scheduleRtspCleanup = (sessionId) => {
 
 const startRtspSession = (url) => {
   const sessionId = createRtspSessionId();
-  const urls = buildRtspUrlCandidates(url);
   const session = {
     id: sessionId,
-    url: urls[0] || url,
-    urls,
-    urlIndex: 0,
+    url,
     process: null,
     latestFrame: null,
     latestFrameAt: 0,
