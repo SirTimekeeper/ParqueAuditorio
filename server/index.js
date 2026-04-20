@@ -20,6 +20,7 @@ app.use(express.static(staticDir));
 const devices = new Map();
 const rtspSessions = new Map();
 const RTSP_SESSION_TTL_MS = 60_000;
+const MJPEG_BOUNDARY = 'frame';
 
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
 
@@ -27,6 +28,11 @@ const stopRtspSession = (sessionId) => {
   const session = rtspSessions.get(sessionId);
   if (!session) return;
   if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
+  if (session.streamClients?.size) {
+    session.streamClients.forEach((client) => {
+      if (!client.writableEnded) client.end();
+    });
+  }
   if (session.process && !session.process.killed) {
     session.process.kill('SIGTERM');
   }
@@ -45,13 +51,23 @@ const scheduleRtspCleanup = (sessionId) => {
 const startRtspSession = (url) => {
   const sessionId = createRtspSessionId();
   const ffmpegArgs = [
+    '-fflags',
+    'nobuffer',
+    '-flags',
+    'low_delay',
+    '-probesize',
+    '32',
+    '-analyzeduration',
+    '0',
     '-rtsp_transport',
     'tcp',
     '-i',
     url,
     '-an',
     '-vf',
-    'fps=8',
+    'fps=20',
+    '-q:v',
+    '6',
     '-f',
     'image2pipe',
     '-vcodec',
@@ -68,6 +84,7 @@ const startRtspSession = (url) => {
     latestFrameAt: 0,
     lastError: null,
     buffer: Buffer.alloc(0),
+    streamClients: new Set(),
     cleanupTimer: null
   };
   rtspSessions.set(sessionId, session);
@@ -84,6 +101,18 @@ const startRtspSession = (url) => {
       const frame = current.buffer.subarray(start, end + 2);
       current.latestFrame = frame;
       current.latestFrameAt = Date.now();
+      if (current.streamClients.size) {
+        const payloadHeader = `--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`;
+        current.streamClients.forEach((client) => {
+          if (client.writableEnded) {
+            current.streamClients.delete(client);
+            return;
+          }
+          client.write(payloadHeader);
+          client.write(frame);
+          client.write('\r\n');
+        });
+      }
       current.buffer = current.buffer.subarray(end + 2);
       start = current.buffer.indexOf(Buffer.from([0xff, 0xd8]));
       end = current.buffer.indexOf(Buffer.from([0xff, 0xd9]), start + 2);
@@ -234,6 +263,36 @@ app.get('/api/rtsp/:id/frame.jpg', (req, res) => {
   res.setHeader('Content-Type', 'image/jpeg');
   res.setHeader('Cache-Control', 'no-store');
   res.send(session.latestFrame);
+});
+
+app.get('/api/rtsp/:id/stream.mjpg', (req, res) => {
+  const session = rtspSessions.get(req.params.id);
+  if (!session) {
+    res.status(404).json({ ok: false, error: 'session_not_found' });
+    return;
+  }
+  scheduleRtspCleanup(req.params.id);
+  res.status(200);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Content-Type', `multipart/x-mixed-replace; boundary=${MJPEG_BOUNDARY}`);
+  res.flushHeaders?.();
+  session.streamClients.add(res);
+
+  if (session.latestFrame) {
+    const firstFrame = session.latestFrame;
+    res.write(`--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${firstFrame.length}\r\n\r\n`);
+    res.write(firstFrame);
+    res.write('\r\n');
+  }
+
+  req.on('close', () => {
+    const current = rtspSessions.get(req.params.id);
+    if (!current) return;
+    current.streamClients.delete(res);
+    scheduleRtspCleanup(req.params.id);
+  });
 });
 
 app.delete('/api/rtsp/:id', (req, res) => {
