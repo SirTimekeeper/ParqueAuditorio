@@ -24,6 +24,8 @@ const MJPEG_BOUNDARY = 'frame';
 const RTSP_FRAME_STALE_MS = 12_000;
 const RTSP_MONITOR_INTERVAL_MS = 3_000;
 const RTSP_RESTART_DELAY_MS = 1_500;
+const RTSP_ANALYZE_DURATION = process.env.RTSP_ANALYZE_DURATION?.trim() || '10000000';
+const RTSP_PROBE_SIZE = process.env.RTSP_PROBE_SIZE?.trim() || '1000000';
 const MJPEG_CLIENT_BUFFER_LIMIT_BYTES = 256 * 1024;
 const isWindows = process.platform === 'win32';
 const configuredFfmpegPath = process.env.FFMPEG_PATH?.trim();
@@ -80,9 +82,9 @@ const createRtspFfmpegArgs = (url) => [
   '-flags',
   'low_delay',
   '-analyzeduration',
-  '0',
+  RTSP_ANALYZE_DURATION,
   '-probesize',
-  '32',
+  RTSP_PROBE_SIZE,
   '-rtsp_transport',
   'tcp',
   ...createRtspTimeoutArgs(),

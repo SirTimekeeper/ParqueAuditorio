@@ -51,6 +51,7 @@ npm start
 - No Windows, o backend usa primeiro o `ffmpeg` disponível no `PATH` (ideal para usar a versão mais recente instalada no sistema).
 - Em Linux/macOS, continua a usar o `ffmpeg` incluído no projeto (`ffmpeg-static`) por omissão, com fallback para `ffmpeg` no `PATH`.
 - Pode forçar um binário específico com a variável de ambiente `FFMPEG_PATH` (ex.: `FFMPEG_PATH=C:\\ffmpeg\\bin\\ffmpeg.exe`).
+- Para streams HEVC/H.265 (comum em Android/IP cams), o backend usa por padrão `-analyzeduration 10000000` e `-probesize 1000000` para evitar erro de "unspecified size". Se necessário, ajuste com `RTSP_ANALYZE_DURATION` e `RTSP_PROBE_SIZE`.
 
 ## Como desenhar linhas/zonas
 1. Clique em **Definir Linha de Entrada** e desenhe a linha (clique/arraste).
