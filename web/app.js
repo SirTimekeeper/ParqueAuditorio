@@ -1162,8 +1162,8 @@ const startCamera = async () => {
     const code = error?.message || '';
     const rtspMode = cameraConfig.mode === 'rtsp';
     const networkMode = cameraConfig.mode === 'network';
-    if (rtspMode && (code === 'invalid_rtsp_url' || code === 'rtsp_session_error')) {
-      setStatus('URL RTSP inválido. Use formato rtsp://utilizador:senha@ip:554/h264_stream', true);
+    if (rtspMode && (code === 'invalid_rtsp_url' || code.startsWith('rtsp_session_error:invalid_rtsp_url'))) {
+      setStatus('URL RTSP inválido. Use formato rtsp:// ou rtsps://utilizador:senha@ip:554/h264_stream', true);
       alert('URL RTSP inválido. Exemplo EZVIZ: rtsp://utilizador:senha@IP:554/h264_stream');
       return;
     }
