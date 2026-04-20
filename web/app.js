@@ -1102,7 +1102,7 @@ const startCamera = async () => {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? 'rtsp_session_error');
+        throw new Error(payload.error ? `rtsp_session_error:${payload.error}` : 'rtsp_session_error');
       }
       const payload = await response.json();
       activeRtspSessionId = payload.sessionId;
