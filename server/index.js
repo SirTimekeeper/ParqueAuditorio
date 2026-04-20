@@ -61,6 +61,13 @@ const createRtspTimeoutArgs = () => {
   return [];
 };
 
+const createFpsSyncArgs = () => {
+  if (ffmpegSupportsOption('-fps_mode')) {
+    return ['-fps_mode', 'passthrough'];
+  }
+  return ['-vsync', '0'];
+};
+
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
 
 const createRtspFfmpegArgs = (url) => [
@@ -77,17 +84,13 @@ const createRtspFfmpegArgs = (url) => [
   '32',
   '-rtsp_transport',
   'tcp',
-  '-rw_timeout',
-  '15000000',
+  ...createRtspTimeoutArgs(),
   '-fflags',
   '+discardcorrupt',
   '-i',
   url,
   '-an',
-  '-vsync',
-  '0',
-  '-fps_mode',
-  'passthrough',
+  ...createFpsSyncArgs(),
   '-fflags',
   'nobuffer',
   '-flush_packets',
