@@ -58,6 +58,13 @@ const createFpsSyncArgs = () => {
   return ['-vsync', '0'];
 };
 
+const createFpsSyncArgs = () => {
+  if (ffmpegSupportsOption('-fps_mode')) {
+    return ['-fps_mode', 'passthrough'];
+  }
+  return ['-vsync', '0'];
+};
+
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
 
 const createRtspFfmpegArgs = (url) => [
@@ -74,6 +81,7 @@ const createRtspFfmpegArgs = (url) => [
   '32',
   '-rtsp_transport',
   'tcp',
+  ...createRtspTimeoutArgs(),
   '-fflags',
   '+discardcorrupt',
   '-i',
