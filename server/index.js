@@ -21,78 +21,86 @@ const devices = new Map();
 const rtspSessions = new Map();
 const RTSP_SESSION_TTL_MS = 60_000;
 const MJPEG_BOUNDARY = 'frame';
+const RTSP_FRAME_STALE_MS = 12_000;
+const RTSP_MONITOR_INTERVAL_MS = 3_000;
+const RTSP_RESTART_DELAY_MS = 1_500;
+const RTSP_DEFAULT_PATHS = ['/h264_stream', '/Streaming/Channels/101'];
 
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
 
-const stopRtspSession = (sessionId) => {
-  const session = rtspSessions.get(sessionId);
-  if (!session) return;
-  if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
-  if (session.streamClients?.size) {
-    session.streamClients.forEach((client) => {
-      if (!client.writableEnded) client.end();
-    });
-  }
-  if (session.process && !session.process.killed) {
-    session.process.kill('SIGTERM');
-  }
-  rtspSessions.delete(sessionId);
-};
-
-const scheduleRtspCleanup = (sessionId) => {
-  const session = rtspSessions.get(sessionId);
-  if (!session) return;
-  if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
-  session.cleanupTimer = setTimeout(() => {
-    stopRtspSession(sessionId);
-  }, RTSP_SESSION_TTL_MS);
-};
-
-const startRtspSession = (url) => {
-  const sessionId = createRtspSessionId();
-  const ffmpegArgs = [
-    '-fflags',
-    'nobuffer',
-    '-flags',
-    'low_delay',
-    '-probesize',
-    '32',
-    '-analyzeduration',
-    '0',
-    '-rtsp_transport',
-    'tcp',
-    '-i',
-    url,
-    '-an',
-    '-vf',
-    'fps=20',
-    '-q:v',
-    '6',
-    '-f',
-    'image2pipe',
-    '-vcodec',
-    'mjpeg',
-    'pipe:1'
-  ];
-  const ffmpegExecutable = ffmpegPath || 'ffmpeg';
-  const ffmpeg = spawn(ffmpegExecutable, ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-  const session = {
-    id: sessionId,
-    url,
-    process: ffmpeg,
-    latestFrame: null,
-    latestFrameAt: 0,
-    lastError: null,
-    buffer: Buffer.alloc(0),
-    streamClients: new Set(),
-    cleanupTimer: null
+const buildRtspUrlCandidates = (rawUrl) => {
+  const candidates = [];
+  const addCandidate = (value) => {
+    if (!value) return;
+    if (!candidates.includes(value)) candidates.push(value);
   };
-  rtspSessions.set(sessionId, session);
-  scheduleRtspCleanup(sessionId);
+
+  addCandidate(rawUrl);
+
+  try {
+    const parsed = new URL(rawUrl);
+    const hasPath = parsed.pathname && parsed.pathname !== '/';
+    if (!hasPath) {
+      RTSP_DEFAULT_PATHS.forEach((pathName) => {
+        const variant = new URL(rawUrl);
+        variant.pathname = pathName;
+        variant.search = '';
+        variant.hash = '';
+        addCandidate(variant.toString());
+      });
+    }
+  } catch (error) {
+    // URL inválido será validado noutro ponto; aqui só tentamos criar variações úteis.
+  }
+
+  return candidates;
+};
+
+const createRtspFfmpegArgs = (url) => [
+  '-fflags',
+  'nobuffer',
+  '-flags',
+  'low_delay',
+  '-probesize',
+  '32',
+  '-analyzeduration',
+  '0',
+  '-rw_timeout',
+  '15000000',
+  '-stimeout',
+  '15000000',
+  '-rtsp_transport',
+  'tcp',
+  '-i',
+  url,
+  '-an',
+  '-vf',
+  'fps=20',
+  '-q:v',
+  '6',
+  '-f',
+  'image2pipe',
+  '-vcodec',
+  'mjpeg',
+  'pipe:1'
+];
+
+const launchRtspFfmpeg = (sessionId) => {
+  const session = rtspSessions.get(sessionId);
+  if (!session || session.stopping) return;
+  const activeUrl = session.urls[session.urlIndex] || session.url;
+
+  const ffmpegExecutable = ffmpegPath || 'ffmpeg';
+  const ffmpeg = spawn(ffmpegExecutable, createRtspFfmpegArgs(activeUrl), { stdio: ['ignore', 'pipe', 'pipe'] });
+  session.process = ffmpeg;
+  session.restartTimer = null;
+  session.lastStartAt = Date.now();
+  session.url = activeUrl;
+  session.buffer = Buffer.alloc(0);
 
   ffmpeg.stdout.on('data', (chunk) => {
     const current = rtspSessions.get(sessionId);
-    if (!current) return;
+    if (!current || current.stopping) return;
     current.buffer = Buffer.concat([current.buffer, chunk]);
     let start = current.buffer.indexOf(Buffer.from([0xff, 0xd8]));
     let end = current.buffer.indexOf(Buffer.from([0xff, 0xd9]), start + 2);
@@ -122,7 +130,8 @@ const startRtspSession = (url) => {
   ffmpeg.stderr.on('data', (chunk) => {
     const current = rtspSessions.get(sessionId);
     if (!current) return;
-    current.lastError = chunk.toString();
+    const message = chunk.toString().trim();
+    if (message) current.lastError = message;
   });
 
   ffmpeg.on('close', (code) => {
@@ -131,6 +140,11 @@ const startRtspSession = (url) => {
     if (code !== 0 && !current.lastError) {
       current.lastError = `ffmpeg terminou com código ${code}`;
     }
+    if (current.stopping) return;
+    if (!current.latestFrameAt && current.urls.length > 1) {
+      current.urlIndex = (current.urlIndex + 1) % current.urls.length;
+    }
+    current.restartTimer = setTimeout(() => launchRtspFfmpeg(sessionId), RTSP_RESTART_DELAY_MS);
   });
 
   ffmpeg.on('error', (error) => {
@@ -138,6 +152,71 @@ const startRtspSession = (url) => {
     if (!current) return;
     current.lastError = error.message;
   });
+};
+
+const stopRtspSession = (sessionId) => {
+  const session = rtspSessions.get(sessionId);
+  if (!session) return;
+  session.stopping = true;
+  if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
+  if (session.monitorTimer) clearInterval(session.monitorTimer);
+  if (session.restartTimer) clearTimeout(session.restartTimer);
+  if (session.streamClients?.size) {
+    session.streamClients.forEach((client) => {
+      if (!client.writableEnded) client.end();
+    });
+  }
+  if (session.process && !session.process.killed) {
+    session.process.kill('SIGTERM');
+  }
+  rtspSessions.delete(sessionId);
+};
+
+const scheduleRtspCleanup = (sessionId) => {
+  const session = rtspSessions.get(sessionId);
+  if (!session) return;
+  if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
+  session.cleanupTimer = setTimeout(() => {
+    stopRtspSession(sessionId);
+  }, RTSP_SESSION_TTL_MS);
+};
+
+const startRtspSession = (url) => {
+  const sessionId = createRtspSessionId();
+  const urls = buildRtspUrlCandidates(url);
+  const session = {
+    id: sessionId,
+    url: urls[0] || url,
+    urls,
+    urlIndex: 0,
+    process: null,
+    latestFrame: null,
+    latestFrameAt: 0,
+    lastError: null,
+    buffer: Buffer.alloc(0),
+    streamClients: new Set(),
+    cleanupTimer: null,
+    monitorTimer: null,
+    restartTimer: null,
+    lastStartAt: 0,
+    stopping: false
+  };
+  rtspSessions.set(sessionId, session);
+  scheduleRtspCleanup(sessionId);
+  launchRtspFfmpeg(sessionId);
+  session.monitorTimer = setInterval(() => {
+    const current = rtspSessions.get(sessionId);
+    if (!current || current.stopping || current.restartTimer) return;
+    const now = Date.now();
+    if (!current.latestFrameAt && now - current.lastStartAt < RTSP_FRAME_STALE_MS) return;
+    if (current.latestFrameAt && now - current.latestFrameAt < RTSP_FRAME_STALE_MS) return;
+    current.lastError = current.lastError || 'stream_stalled';
+    if (current.process && !current.process.killed) {
+      current.process.kill('SIGTERM');
+    } else {
+      current.restartTimer = setTimeout(() => launchRtspFfmpeg(sessionId), RTSP_RESTART_DELAY_MS);
+    }
+  }, RTSP_MONITOR_INTERVAL_MS);
 
   return sessionId;
 };
@@ -296,6 +375,22 @@ app.post('/api/rtsp/session', (req, res) => {
   }
   const sessionId = startRtspSession(url);
   res.json({ ok: true, sessionId });
+});
+
+app.get('/api/rtsp/:id/status', (req, res) => {
+  const session = rtspSessions.get(req.params.id);
+  if (!session) {
+    res.status(404).json({ ok: false, error: 'session_not_found' });
+    return;
+  }
+  scheduleRtspCleanup(req.params.id);
+  res.json({
+    ok: true,
+    activeUrl: session.url,
+    lastError: session.lastError,
+    hasFrame: Boolean(session.latestFrame),
+    lastFrameAt: session.latestFrameAt || null
+  });
 });
 
 app.get('/api/rtsp/:id/frame.jpg', (req, res) => {
