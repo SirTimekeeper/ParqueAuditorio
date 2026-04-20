@@ -51,14 +51,11 @@ const ffmpegSupportsOption = (optionName) => {
   return helpText.includes(optionName.toLowerCase());
 };
 
-const createRtspTimeoutArgs = () => {
-  if (ffmpegSupportsOption('-rw_timeout')) {
-    return ['-rw_timeout', '15000000'];
+const createFpsSyncArgs = () => {
+  if (ffmpegSupportsOption('-fps_mode')) {
+    return ['-fps_mode', 'passthrough'];
   }
-  if (ffmpegSupportsOption('-stimeout')) {
-    return ['-stimeout', '15000000'];
-  }
-  return [];
+  return ['-vsync', '0'];
 };
 
 const createFpsSyncArgs = () => {
