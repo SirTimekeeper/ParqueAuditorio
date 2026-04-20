@@ -132,6 +132,8 @@ let roiDrawing = null;
 let animationHandle = null;
 let snapshotInterval = null;
 let activeRtspSessionId = null;
+let rtspPreviewRetryTimer = null;
+let rtspStatusPollTimer = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
@@ -701,6 +703,8 @@ const hasLocalFeed = () => {
 };
 
 const stopRtspFeed = async () => {
+  clearRtspPreviewRetry();
+  clearRtspStatusPoll();
   if (activeRtspSessionId) {
     try {
       await fetch(`/api/rtsp/${activeRtspSessionId}`, { method: 'DELETE' });
@@ -724,6 +728,8 @@ const stopCamera = () => {
     video.load();
   }
   if (remotePreview) {
+    clearRtspPreviewRetry();
+    clearRtspStatusPoll();
     remotePreview.removeAttribute('src');
     remotePreview.style.display = 'none';
   }
@@ -941,6 +947,14 @@ const updateCameraSelect = async () => {
   renderDeviceList(devices);
 };
 
+const refreshCameraSelectSafely = async () => {
+  try {
+    await updateCameraSelect();
+  } catch (error) {
+    console.warn('Não foi possível atualizar a lista de câmaras neste contexto.', error);
+  }
+};
+
 const registerDevice = async () => {
   try {
     await fetch('/api/devices/register', {
@@ -1020,9 +1034,46 @@ const setRtspPreviewMessage = (text, isError = false) => {
   previewStatus.style.color = isError ? '#e23434' : '';
 };
 
+const clearRtspPreviewRetry = () => {
+  if (!rtspPreviewRetryTimer) return;
+  clearTimeout(rtspPreviewRetryTimer);
+  rtspPreviewRetryTimer = null;
+};
+
+const clearRtspStatusPoll = () => {
+  if (!rtspStatusPollTimer) return;
+  clearInterval(rtspStatusPollTimer);
+  rtspStatusPollTimer = null;
+};
+
+const updateRtspStatusFromServer = async () => {
+  if (!activeRtspSessionId) return;
+  try {
+    const response = await fetch(`/api/rtsp/${activeRtspSessionId}/status`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (payload?.hasFrame) return;
+    const errorHint = payload?.lastError ? ` (${payload.lastError})` : '';
+    setRtspPreviewMessage(`Sem imagem RTSP${errorHint}. Dica: teste /h264_stream.`, true);
+  } catch (error) {
+    // falha transitória de rede, ignorar
+  }
+};
+
+const scheduleRtspPreviewRetry = () => {
+  if (!activeRtspSessionId || rtspPreviewRetryTimer) return;
+  rtspPreviewRetryTimer = setTimeout(() => {
+    rtspPreviewRetryTimer = null;
+    if (!activeRtspSessionId) return;
+    remotePreview.src = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
+  }, 1500);
+};
+
 const showLocalPreview = () => {
   activePreviewMode = 'local';
   selectedRemoteDevice = null;
+  clearRtspPreviewRetry();
+  clearRtspStatusPoll();
   remotePreview.onload = null;
   remotePreview.onerror = null;
   remotePreview.removeAttribute('src');
@@ -1060,12 +1111,12 @@ const showRemotePreview = (device) => {
 };
 
 const startCamera = async () => {
+  const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null, networkUrl: '' };
   try {
     if (activePreviewMode !== 'local') {
       showLocalPreview();
     }
     stopCamera();
-    const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null, networkUrl: '' };
 
     if (cameraConfig.mode === 'rtsp' && cameraConfig.networkUrl) {
       const response = await fetch('/api/rtsp/session', {
@@ -1075,7 +1126,7 @@ const startCamera = async () => {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? 'rtsp_session_error');
+        throw new Error(payload.error ? `rtsp_session_error:${payload.error}` : 'rtsp_session_error');
       }
       const payload = await response.json();
       activeRtspSessionId = payload.sessionId;
@@ -1087,13 +1138,19 @@ const startCamera = async () => {
       const streamUrl = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
       remotePreview.onerror = () => {
         setRtspPreviewMessage('Falha ao receber stream RTSP. Verifique ligação de rede/credenciais.', true);
+        updateRtspStatusFromServer();
+        scheduleRtspPreviewRetry();
       };
       remotePreview.onload = () => {
+        clearRtspPreviewRetry();
+        clearRtspStatusPoll();
         updatePreviewStatus();
       };
       remotePreview.src = streamUrl;
+      clearRtspStatusPoll();
+      rtspStatusPollTimer = setInterval(updateRtspStatusFromServer, 3500);
       configureCanvas();
-      await updateCameraSelect();
+      await refreshCameraSelectSafely();
       setStatus('Câmara RTSP pronta');
       return;
     }
@@ -1106,9 +1163,11 @@ const startCamera = async () => {
       video.style.display = 'block';
       await video.play();
       configureCanvas();
-      await updateCameraSelect();
+      await refreshCameraSelectSafely();
       setStatus('Câmara de rede pronta');
-      renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+      if (navigator.mediaDevices?.enumerateDevices) {
+        renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+      }
       return;
     }
 
@@ -1119,13 +1178,35 @@ const startCamera = async () => {
     video.srcObject = stream;
     await video.play();
     configureCanvas();
-    await updateCameraSelect();
+    await refreshCameraSelectSafely();
     setStatus('Câmara pronta');
-    renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+    if (navigator.mediaDevices?.enumerateDevices) {
+      renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+    }
     startSnapshotLoop();
   } catch (error) {
-    setStatus('Erro ao aceder à câmara', true);
-    alert('Não foi possível aceder à câmara. Verifique permissões, URL da câmara de rede/RTSP (e ffmpeg no servidor) ou use HTTPS/localhost.');
+    const code = (error?.message || '').trim();
+    const rtspMode = cameraConfig.mode === 'rtsp';
+    const networkMode = cameraConfig.mode === 'network';
+    if (rtspMode && (code === 'invalid_rtsp_url' || code.includes('rtsp_session_error:invalid_rtsp_url'))) {
+      setStatus('URL RTSP inválido. Use formato rtsp://utilizador:senha@ip:554/h264_stream.', true);
+      setRtspPreviewMessage('URL RTSP inválido. Exemplo EZVIZ: rtsp://utilizador:senha@IP:554/h264_stream', true);
+      return;
+    }
+    if (rtspMode || networkMode) {
+      const networkDown = /failed to fetch|networkerror|load failed/i.test(code);
+      if (networkDown) {
+        setStatus('Sem ligação ao servidor local. Confirme que a app Node está a correr.', true);
+        setRtspPreviewMessage('Sem ligação ao servidor local (ex: http://localhost:3000).', true);
+        return;
+      }
+      const detail = code ? ` Detalhe: ${code}` : '';
+      setStatus(`Falha ao ligar à câmara de rede.${detail}`, true);
+      setRtspPreviewMessage(`Falha de ligação RTSP/rede.${detail} Verifique IP, credenciais e caminho (ex: /h264_stream).`, true);
+      return;
+    }
+    setStatus('Erro ao aceder à câmara local', true);
+    alert('Não foi possível aceder à câmara local. Verifique permissões do navegador e use HTTPS/localhost.');
     throw error;
   }
 };
