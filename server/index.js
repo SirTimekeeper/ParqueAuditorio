@@ -65,7 +65,10 @@ const launchRtspFfmpeg = (sessionId) => {
   session.process = ffmpeg;
   session.restartTimer = null;
   session.lastStartAt = Date.now();
+  session.lastError = null;
   session.buffer = Buffer.alloc(0);
+  session.latestFrame = null;
+  session.latestFrameAt = 0;
 
   ffmpeg.stdout.on('data', (chunk) => {
     const current = rtspSessions.get(sessionId);
