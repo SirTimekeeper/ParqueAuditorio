@@ -133,7 +133,6 @@ let animationHandle = null;
 let snapshotInterval = null;
 let activeRtspSessionId = null;
 let rtspPreviewRetryTimer = null;
-let rtspStatusPollTimer = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
@@ -704,7 +703,6 @@ const hasLocalFeed = () => {
 
 const stopRtspFeed = async () => {
   clearRtspPreviewRetry();
-  clearRtspStatusPoll();
   if (activeRtspSessionId) {
     try {
       await fetch(`/api/rtsp/${activeRtspSessionId}`, { method: 'DELETE' });
@@ -729,7 +727,6 @@ const stopCamera = () => {
   }
   if (remotePreview) {
     clearRtspPreviewRetry();
-    clearRtspStatusPoll();
     remotePreview.removeAttribute('src');
     remotePreview.style.display = 'none';
   }
@@ -1040,26 +1037,6 @@ const clearRtspPreviewRetry = () => {
   rtspPreviewRetryTimer = null;
 };
 
-const clearRtspStatusPoll = () => {
-  if (!rtspStatusPollTimer) return;
-  clearInterval(rtspStatusPollTimer);
-  rtspStatusPollTimer = null;
-};
-
-const updateRtspStatusFromServer = async () => {
-  if (!activeRtspSessionId) return;
-  try {
-    const response = await fetch(`/api/rtsp/${activeRtspSessionId}/status`);
-    if (!response.ok) return;
-    const payload = await response.json();
-    if (payload?.hasFrame) return;
-    const errorHint = payload?.lastError ? ` (${payload.lastError})` : '';
-    setRtspPreviewMessage(`Sem imagem RTSP${errorHint}. Dica: teste /h264_stream.`, true);
-  } catch (error) {
-    // falha transitória de rede, ignorar
-  }
-};
-
 const scheduleRtspPreviewRetry = () => {
   if (!activeRtspSessionId || rtspPreviewRetryTimer) return;
   rtspPreviewRetryTimer = setTimeout(() => {
@@ -1073,7 +1050,6 @@ const showLocalPreview = () => {
   activePreviewMode = 'local';
   selectedRemoteDevice = null;
   clearRtspPreviewRetry();
-  clearRtspStatusPoll();
   remotePreview.onload = null;
   remotePreview.onerror = null;
   remotePreview.removeAttribute('src');
@@ -1138,12 +1114,10 @@ const startCamera = async () => {
       const streamUrl = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
       remotePreview.onerror = () => {
         setRtspPreviewMessage('Falha ao receber stream RTSP. Verifique ligação de rede/credenciais.', true);
-        updateRtspStatusFromServer();
         scheduleRtspPreviewRetry();
       };
       remotePreview.onload = () => {
         clearRtspPreviewRetry();
-        clearRtspStatusPoll();
         updatePreviewStatus();
       };
       remotePreview.src = streamUrl;
