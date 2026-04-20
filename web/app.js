@@ -52,6 +52,7 @@ const priorityInput = document.getElementById('priorityInput');
 const priorityAddBtn = document.getElementById('priorityAdd');
 const priorityList = document.getElementById('priorityList');
 const logList = document.getElementById('log');
+const rtspLogList = document.getElementById('rtspLog');
 const lastPlateEl = document.getElementById('lastPlate');
 const plateStatusEl = document.getElementById('plateStatus');
 
@@ -145,6 +146,7 @@ let plateQueue = Promise.resolve();
 const plateChecks = new Map();
 const ocrIndicators = new Map();
 const OCR_INDICATOR_TTL_MS = 2200;
+const rtspLogEntries = [];
 let audioContext = null;
 
 const ensureAudioContext = () => {
@@ -413,6 +415,24 @@ const addLog = (entry) => {
   config.log = [entry, ...config.log].slice(0, 40);
 };
 
+const sanitizeRtspLogDetail = (detail) =>
+  String(detail ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/[^\x20-\x7EÀ-ÿ]/g, '')
+    .trim()
+    .slice(0, 220);
+
+const addRtspLog = (type, detail = '') => {
+  const entry = {
+    time: new Date().toLocaleTimeString(),
+    type,
+    detail: sanitizeRtspLogDetail(detail)
+  };
+  rtspLogEntries.unshift(entry);
+  if (rtspLogEntries.length > 50) rtspLogEntries.length = 50;
+  renderRtspLog();
+};
+
 const setSelectedCamera = async (deviceId) => {
   config.camera = { mode: 'device', deviceId, networkUrl: '' };
   persistConfig();
@@ -507,6 +527,22 @@ const renderLog = () => {
     li.className = 'list-item';
     li.textContent = `${entry.time} - ${entry.type} ${entry.detail ?? ''}`.trim();
     logList.appendChild(li);
+  });
+};
+
+const renderRtspLog = () => {
+  if (!rtspLogList) return;
+  rtspLogList.innerHTML = '';
+  if (!rtspLogEntries.length) {
+    const li = document.createElement('li');
+    li.textContent = 'Sem eventos RTSP.';
+    rtspLogList.appendChild(li);
+    return;
+  }
+  rtspLogEntries.forEach((entry) => {
+    const li = document.createElement('li');
+    li.textContent = `${entry.time} - ${entry.type}${entry.detail ? `: ${entry.detail}` : ''}`;
+    rtspLogList.appendChild(li);
   });
 };
 
@@ -735,11 +771,13 @@ const updateRtspStatusFromServer = async () => {
     if (payload.lastError) {
       const detail = String(payload.lastError).slice(0, 180);
       setRtspPreviewMessage(`RTSP sem frames: ${detail}`, true);
+      addRtspLog('Erro do stream', detail);
     }
 
     const stalledForMs = now - (rtspLastFrameProgressAt || now);
     if (lastFrameAt && stalledForMs > 7000) {
       setRtspPreviewMessage('Stream RTSP sem atualização. A reconectar...', true);
+      addRtspLog('Reconexão', 'Sem frames recentes. A tentar recuperar stream.');
       scheduleRtspPreviewRetry(true);
       rtspLastFrameProgressAt = now;
     }
@@ -754,10 +792,12 @@ const stopRtspFeed = async () => {
   rtspLastFrameAt = 0;
   rtspLastFrameProgressAt = 0;
   if (activeRtspSessionId) {
+    addRtspLog('Sessão encerrada', activeRtspSessionId);
     try {
       await fetch(`/api/rtsp/${activeRtspSessionId}`, { method: 'DELETE' });
     } catch (error) {
       console.warn('Falha ao terminar sessão RTSP.', error);
+      addRtspLog('Erro ao encerrar', error?.message || 'Falha ao fechar sessão RTSP');
     }
   }
   activeRtspSessionId = null;
@@ -1167,6 +1207,7 @@ const startCamera = async () => {
     stopCamera();
 
     if (cameraConfig.mode === 'rtsp' && cameraConfig.networkUrl) {
+      addRtspLog('Pedido de ligação', cameraConfig.networkUrl);
       const response = await fetch('/api/rtsp/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1178,6 +1219,7 @@ const startCamera = async () => {
       }
       const payload = await response.json();
       activeRtspSessionId = payload.sessionId;
+      addRtspLog('Sessão iniciada', activeRtspSessionId);
       rtspLastFrameAt = 0;
       rtspLastFrameProgressAt = Date.now();
       video.srcObject = null;
@@ -1188,10 +1230,12 @@ const startCamera = async () => {
       const streamUrl = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
       remotePreview.onerror = () => {
         setRtspPreviewMessage('Falha ao receber stream RTSP. Verifique ligação de rede/credenciais.', true);
+        addRtspLog('Falha no preview', 'Erro ao carregar stream MJPEG.');
         scheduleRtspPreviewRetry();
       };
       remotePreview.onload = () => {
         clearRtspPreviewRetry();
+        addRtspLog('Preview ativo', 'Frames RTSP recebidos com sucesso.');
         updatePreviewStatus();
       };
       remotePreview.src = streamUrl;
@@ -1239,11 +1283,13 @@ const startCamera = async () => {
     const rtspMode = cameraConfig.mode === 'rtsp';
     const networkMode = cameraConfig.mode === 'network';
     if (rtspMode && (code === 'invalid_rtsp_url' || code.startsWith('rtsp_session_error:invalid_rtsp_url'))) {
+      addRtspLog('URL inválido', cameraConfig.networkUrl || 'URL RTSP vazio');
       setStatus('URL RTSP inválido. Use formato rtsp:// ou rtsps://utilizador:senha@ip:554/h264_stream', true);
       alert('URL RTSP inválido. Exemplo EZVIZ: rtsp://utilizador:senha@IP:554/h264_stream');
       return;
     }
     if (rtspMode || networkMode) {
+      if (rtspMode) addRtspLog('Falha na ligação', code || 'Erro desconhecido');
       setStatus('Falha ao ligar à câmara de rede. Verifique IP/credenciais/caminho RTSP.', true);
       alert('Falha ao ligar à câmara de rede. Verifique IP, credenciais e caminho RTSP (ex: /h264_stream).');
       return;
@@ -1842,6 +1888,7 @@ if ('serviceWorker' in navigator) {
 }
 
 loadConfig().then(() => {
+  renderRtspLog();
   if (networkCameraUrlInput) {
     networkCameraUrlInput.value = config.camera?.networkUrl ?? '';
   }
