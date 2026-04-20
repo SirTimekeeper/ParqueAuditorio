@@ -29,6 +29,7 @@ const isWindows = process.platform === 'win32';
 const configuredFfmpegPath = process.env.FFMPEG_PATH?.trim();
 const ffmpegExecutable = configuredFfmpegPath || (isWindows ? 'ffmpeg' : (bundledFfmpegPath || 'ffmpeg'));
 let ffmpegHelpTextCache = null;
+const disabledTimeoutOptions = new Set();
 
 const getFfmpegHelpText = () => {
   if (ffmpegHelpTextCache !== null) return ffmpegHelpTextCache;
@@ -52,10 +53,10 @@ const ffmpegSupportsOption = (optionName) => {
 };
 
 const createRtspTimeoutArgs = () => {
-  if (ffmpegSupportsOption('-rw_timeout')) {
+  if (!disabledTimeoutOptions.has('-rw_timeout') && ffmpegSupportsOption('-rw_timeout')) {
     return ['-rw_timeout', '15000000'];
   }
-  if (ffmpegSupportsOption('-stimeout')) {
+  if (!disabledTimeoutOptions.has('-stimeout') && ffmpegSupportsOption('-stimeout')) {
     return ['-stimeout', '15000000'];
   }
   return [];
@@ -141,6 +142,12 @@ const launchRtspFfmpeg = (sessionId) => {
     const current = rtspSessions.get(sessionId);
     if (!current) return;
     const message = chunk.toString().trim();
+    const normalizedMessage = message.toLowerCase();
+    if (normalizedMessage.includes('option rw_timeout not found')) {
+      disabledTimeoutOptions.add('-rw_timeout');
+    } else if (normalizedMessage.includes('option stimeout not found')) {
+      disabledTimeoutOptions.add('-stimeout');
+    }
     if (message) current.lastError = message;
   });
 
