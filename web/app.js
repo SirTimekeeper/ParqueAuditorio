@@ -1113,6 +1113,8 @@ const startCamera = async () => {
         updatePreviewStatus();
       };
       remotePreview.src = streamUrl;
+      clearRtspStatusPoll();
+      rtspStatusPollTimer = setInterval(updateRtspStatusFromServer, 3500);
       configureCanvas();
       await updateCameraSelect();
       setStatus('Câmara RTSP pronta');

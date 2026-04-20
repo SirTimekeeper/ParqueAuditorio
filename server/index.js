@@ -340,6 +340,22 @@ app.post('/api/rtsp/session', (req, res) => {
   res.json({ ok: true, sessionId });
 });
 
+app.get('/api/rtsp/:id/status', (req, res) => {
+  const session = rtspSessions.get(req.params.id);
+  if (!session) {
+    res.status(404).json({ ok: false, error: 'session_not_found' });
+    return;
+  }
+  scheduleRtspCleanup(req.params.id);
+  res.json({
+    ok: true,
+    activeUrl: session.url,
+    lastError: session.lastError,
+    hasFrame: Boolean(session.latestFrame),
+    lastFrameAt: session.latestFrameAt || null
+  });
+});
+
 app.get('/api/rtsp/:id/frame.jpg', (req, res) => {
   const session = rtspSessions.get(req.params.id);
   if (!session) {
