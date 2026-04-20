@@ -332,7 +332,9 @@ app.get('/api/devices/:id/stream.mjpg', (req, res) => {
 
 app.post('/api/rtsp/session', (req, res) => {
   const url = req.body?.url?.trim();
-  if (!url || !url.startsWith('rtsp://')) {
+  const normalizedUrl = url?.toLowerCase?.() ?? '';
+  const isRtspUrl = normalizedUrl.startsWith('rtsp://') || normalizedUrl.startsWith('rtsps://');
+  if (!url || !isRtspUrl) {
     res.status(400).json({ ok: false, error: 'invalid_rtsp_url' });
     return;
   }
