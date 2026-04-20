@@ -133,6 +133,7 @@ let animationHandle = null;
 let snapshotInterval = null;
 let activeRtspSessionId = null;
 let rtspPreviewRetryTimer = null;
+let rtspStatusPollTimer = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
@@ -701,8 +702,32 @@ const hasLocalFeed = () => {
   return Boolean(config.camera?.mode === 'rtsp' && activeRtspSessionId);
 };
 
+const clearRtspStatusPoll = () => {
+  if (!rtspStatusPollTimer) return;
+  clearInterval(rtspStatusPollTimer);
+  rtspStatusPollTimer = null;
+};
+
+const updateRtspStatusFromServer = async () => {
+  if (!activeRtspSessionId) {
+    clearRtspStatusPoll();
+    return;
+  }
+  try {
+    const response = await fetch(`/api/rtsp/${activeRtspSessionId}/status`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (!payload?.ok || !payload.lastError) return;
+    const detail = String(payload.lastError).slice(0, 180);
+    setRtspPreviewMessage(`RTSP sem frames: ${detail}`, true);
+  } catch (error) {
+    // Ignora falhas pontuais de polling para não interromper a pré-visualização.
+  }
+};
+
 const stopRtspFeed = async () => {
   clearRtspPreviewRetry();
+  clearRtspStatusPoll();
   if (activeRtspSessionId) {
     try {
       await fetch(`/api/rtsp/${activeRtspSessionId}`, { method: 'DELETE' });
