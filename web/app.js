@@ -1029,11 +1029,32 @@ const sendHeartbeat = async () => {
 const snapshotCanvas = document.createElement('canvas');
 const snapshotContext = snapshotCanvas.getContext('2d');
 
+const getSnapshotSource = () => {
+  if (video.style.display !== 'none' && (video.videoWidth || video.videoHeight)) {
+    return {
+      element: video,
+      width: video.videoWidth,
+      height: video.videoHeight
+    };
+  }
+
+  if (remotePreview.style.display !== 'none' && (remotePreview.naturalWidth || remotePreview.naturalHeight)) {
+    return {
+      element: remotePreview,
+      width: remotePreview.naturalWidth,
+      height: remotePreview.naturalHeight
+    };
+  }
+
+  return null;
+};
+
 const sendSnapshot = async () => {
-  if (!video.srcObject || !video.videoWidth) return;
-  snapshotCanvas.width = video.videoWidth;
-  snapshotCanvas.height = video.videoHeight;
-  snapshotContext.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+  const source = getSnapshotSource();
+  if (!source) return;
+  snapshotCanvas.width = source.width;
+  snapshotCanvas.height = source.height;
+  snapshotContext.drawImage(source.element, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
   const image = snapshotCanvas.toDataURL('image/jpeg', 0.7);
   try {
     await fetch(`/api/devices/${localDeviceId}/snapshot`, {
@@ -1178,6 +1199,7 @@ const startCamera = async () => {
       rtspStatusPollTimer = setInterval(updateRtspStatusFromServer, 3500);
       configureCanvas();
       await refreshCameraSelectSafely();
+      startSnapshotLoop();
       setStatus('Câmara RTSP pronta');
       return;
     }
@@ -1191,6 +1213,7 @@ const startCamera = async () => {
       await video.play();
       configureCanvas();
       await refreshCameraSelectSafely();
+      startSnapshotLoop();
       setStatus('Câmara de rede pronta');
       if (navigator.mediaDevices?.enumerateDevices) {
         renderDeviceList(await navigator.mediaDevices.enumerateDevices());
