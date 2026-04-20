@@ -51,14 +51,11 @@ const ffmpegSupportsOption = (optionName) => {
   return helpText.includes(optionName.toLowerCase());
 };
 
-const createRtspTimeoutArgs = () => {
-  if (ffmpegSupportsOption('-rw_timeout')) {
-    return ['-rw_timeout', '15000000'];
+const createFpsSyncArgs = () => {
+  if (ffmpegSupportsOption('-fps_mode')) {
+    return ['-fps_mode', 'passthrough'];
   }
-  if (ffmpegSupportsOption('-stimeout')) {
-    return ['-stimeout', '15000000'];
-  }
-  return [];
+  return ['-vsync', '0'];
 };
 
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
@@ -77,17 +74,12 @@ const createRtspFfmpegArgs = (url) => [
   '32',
   '-rtsp_transport',
   'tcp',
-  '-rw_timeout',
-  '15000000',
   '-fflags',
   '+discardcorrupt',
   '-i',
   url,
   '-an',
-  '-vsync',
-  '0',
-  '-fps_mode',
-  'passthrough',
+  ...createFpsSyncArgs(),
   '-fflags',
   'nobuffer',
   '-flush_packets',
