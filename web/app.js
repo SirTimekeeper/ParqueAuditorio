@@ -134,6 +134,8 @@ let snapshotInterval = null;
 let activeRtspSessionId = null;
 let rtspPreviewRetryTimer = null;
 let rtspStatusPollTimer = null;
+let rtspLastFrameAt = 0;
+let rtspLastFrameProgressAt = 0;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
@@ -717,9 +719,30 @@ const updateRtspStatusFromServer = async () => {
     const response = await fetch(`/api/rtsp/${activeRtspSessionId}/status`);
     if (!response.ok) return;
     const payload = await response.json();
-    if (!payload?.ok || !payload.lastError) return;
-    const detail = String(payload.lastError).slice(0, 180);
-    setRtspPreviewMessage(`RTSP sem frames: ${detail}`, true);
+    if (!payload?.ok) return;
+
+    const lastFrameAt = Number(payload.lastFrameAt) || 0;
+    const now = Date.now();
+    if (lastFrameAt && lastFrameAt !== rtspLastFrameAt) {
+      rtspLastFrameAt = lastFrameAt;
+      rtspLastFrameProgressAt = now;
+    }
+
+    if (!rtspLastFrameProgressAt && lastFrameAt) {
+      rtspLastFrameProgressAt = now;
+    }
+
+    if (payload.lastError) {
+      const detail = String(payload.lastError).slice(0, 180);
+      setRtspPreviewMessage(`RTSP sem frames: ${detail}`, true);
+    }
+
+    const stalledForMs = now - (rtspLastFrameProgressAt || now);
+    if (lastFrameAt && stalledForMs > 7000) {
+      setRtspPreviewMessage('Stream RTSP sem atualização. A reconectar...', true);
+      scheduleRtspPreviewRetry(true);
+      rtspLastFrameProgressAt = now;
+    }
   } catch (error) {
     // Ignora falhas pontuais de polling para não interromper a pré-visualização.
   }
@@ -728,6 +751,8 @@ const updateRtspStatusFromServer = async () => {
 const stopRtspFeed = async () => {
   clearRtspPreviewRetry();
   clearRtspStatusPoll();
+  rtspLastFrameAt = 0;
+  rtspLastFrameProgressAt = 0;
   if (activeRtspSessionId) {
     try {
       await fetch(`/api/rtsp/${activeRtspSessionId}`, { method: 'DELETE' });
@@ -1062,11 +1087,12 @@ const clearRtspPreviewRetry = () => {
   rtspPreviewRetryTimer = null;
 };
 
-const scheduleRtspPreviewRetry = () => {
+const scheduleRtspPreviewRetry = (force = false) => {
   if (!activeRtspSessionId || rtspPreviewRetryTimer) return;
   rtspPreviewRetryTimer = setTimeout(() => {
     rtspPreviewRetryTimer = null;
     if (!activeRtspSessionId) return;
+    if (force) remotePreview.removeAttribute('src');
     remotePreview.src = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
   }, 1500);
 };
@@ -1131,6 +1157,8 @@ const startCamera = async () => {
       }
       const payload = await response.json();
       activeRtspSessionId = payload.sessionId;
+      rtspLastFrameAt = 0;
+      rtspLastFrameProgressAt = Date.now();
       video.srcObject = null;
       video.removeAttribute('src');
       video.style.display = 'none';
