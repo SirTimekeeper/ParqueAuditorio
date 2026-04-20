@@ -132,6 +132,8 @@ let roiDrawing = null;
 let animationHandle = null;
 let snapshotInterval = null;
 let activeRtspSessionId = null;
+let rtspPreviewRetryTimer = null;
+let rtspStatusPollTimer = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
@@ -701,6 +703,8 @@ const hasLocalFeed = () => {
 };
 
 const stopRtspFeed = async () => {
+  clearRtspPreviewRetry();
+  clearRtspStatusPoll();
   if (activeRtspSessionId) {
     try {
       await fetch(`/api/rtsp/${activeRtspSessionId}`, { method: 'DELETE' });
@@ -724,6 +728,8 @@ const stopCamera = () => {
     video.load();
   }
   if (remotePreview) {
+    clearRtspPreviewRetry();
+    clearRtspStatusPoll();
     remotePreview.removeAttribute('src');
     remotePreview.style.display = 'none';
   }
@@ -1020,9 +1026,46 @@ const setRtspPreviewMessage = (text, isError = false) => {
   previewStatus.style.color = isError ? '#e23434' : '';
 };
 
+const clearRtspPreviewRetry = () => {
+  if (!rtspPreviewRetryTimer) return;
+  clearTimeout(rtspPreviewRetryTimer);
+  rtspPreviewRetryTimer = null;
+};
+
+const clearRtspStatusPoll = () => {
+  if (!rtspStatusPollTimer) return;
+  clearInterval(rtspStatusPollTimer);
+  rtspStatusPollTimer = null;
+};
+
+const updateRtspStatusFromServer = async () => {
+  if (!activeRtspSessionId) return;
+  try {
+    const response = await fetch(`/api/rtsp/${activeRtspSessionId}/status`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (payload?.hasFrame) return;
+    const errorHint = payload?.lastError ? ` (${payload.lastError})` : '';
+    setRtspPreviewMessage(`Sem imagem RTSP${errorHint}. Dica: teste /h264_stream.`, true);
+  } catch (error) {
+    // falha transitória de rede, ignorar
+  }
+};
+
+const scheduleRtspPreviewRetry = () => {
+  if (!activeRtspSessionId || rtspPreviewRetryTimer) return;
+  rtspPreviewRetryTimer = setTimeout(() => {
+    rtspPreviewRetryTimer = null;
+    if (!activeRtspSessionId) return;
+    remotePreview.src = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
+  }, 1500);
+};
+
 const showLocalPreview = () => {
   activePreviewMode = 'local';
   selectedRemoteDevice = null;
+  clearRtspPreviewRetry();
+  clearRtspStatusPoll();
   remotePreview.onload = null;
   remotePreview.onerror = null;
   remotePreview.removeAttribute('src');
@@ -1087,11 +1130,17 @@ const startCamera = async () => {
       const streamUrl = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
       remotePreview.onerror = () => {
         setRtspPreviewMessage('Falha ao receber stream RTSP. Verifique ligação de rede/credenciais.', true);
+        updateRtspStatusFromServer();
+        scheduleRtspPreviewRetry();
       };
       remotePreview.onload = () => {
+        clearRtspPreviewRetry();
+        clearRtspStatusPoll();
         updatePreviewStatus();
       };
       remotePreview.src = streamUrl;
+      clearRtspStatusPoll();
+      rtspStatusPollTimer = setInterval(updateRtspStatusFromServer, 3500);
       configureCanvas();
       await updateCameraSelect();
       setStatus('Câmara RTSP pronta');
