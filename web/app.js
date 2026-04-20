@@ -132,6 +132,7 @@ let roiDrawing = null;
 let animationHandle = null;
 let snapshotInterval = null;
 let activeRtspSessionId = null;
+let rtspPreviewRetryTimer = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
 let lastOrientation = null;
@@ -701,6 +702,7 @@ const hasLocalFeed = () => {
 };
 
 const stopRtspFeed = async () => {
+  clearRtspPreviewRetry();
   if (activeRtspSessionId) {
     try {
       await fetch(`/api/rtsp/${activeRtspSessionId}`, { method: 'DELETE' });
@@ -724,6 +726,7 @@ const stopCamera = () => {
     video.load();
   }
   if (remotePreview) {
+    clearRtspPreviewRetry();
     remotePreview.removeAttribute('src');
     remotePreview.style.display = 'none';
   }
@@ -1020,9 +1023,25 @@ const setRtspPreviewMessage = (text, isError = false) => {
   previewStatus.style.color = isError ? '#e23434' : '';
 };
 
+const clearRtspPreviewRetry = () => {
+  if (!rtspPreviewRetryTimer) return;
+  clearTimeout(rtspPreviewRetryTimer);
+  rtspPreviewRetryTimer = null;
+};
+
+const scheduleRtspPreviewRetry = () => {
+  if (!activeRtspSessionId || rtspPreviewRetryTimer) return;
+  rtspPreviewRetryTimer = setTimeout(() => {
+    rtspPreviewRetryTimer = null;
+    if (!activeRtspSessionId) return;
+    remotePreview.src = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
+  }, 1500);
+};
+
 const showLocalPreview = () => {
   activePreviewMode = 'local';
   selectedRemoteDevice = null;
+  clearRtspPreviewRetry();
   remotePreview.onload = null;
   remotePreview.onerror = null;
   remotePreview.removeAttribute('src');
@@ -1087,8 +1106,10 @@ const startCamera = async () => {
       const streamUrl = `/api/rtsp/${activeRtspSessionId}/stream.mjpg?t=${Date.now()}`;
       remotePreview.onerror = () => {
         setRtspPreviewMessage('Falha ao receber stream RTSP. Verifique ligação de rede/credenciais.', true);
+        scheduleRtspPreviewRetry();
       };
       remotePreview.onload = () => {
+        clearRtspPreviewRetry();
         updatePreviewStatus();
       };
       remotePreview.src = streamUrl;
