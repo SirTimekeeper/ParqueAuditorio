@@ -944,6 +944,14 @@ const updateCameraSelect = async () => {
   renderDeviceList(devices);
 };
 
+const refreshCameraSelectSafely = async () => {
+  try {
+    await updateCameraSelect();
+  } catch (error) {
+    console.warn('Não foi possível atualizar a lista de câmaras neste contexto.', error);
+  }
+};
+
 const registerDevice = async () => {
   try {
     await fetch('/api/devices/register', {
@@ -1079,12 +1087,12 @@ const showRemotePreview = (device) => {
 };
 
 const startCamera = async () => {
+  const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null, networkUrl: '' };
   try {
     if (activePreviewMode !== 'local') {
       showLocalPreview();
     }
     stopCamera();
-    const cameraConfig = config.camera ?? { mode: 'auto', deviceId: null, networkUrl: '' };
 
     if (cameraConfig.mode === 'rtsp' && cameraConfig.networkUrl) {
       const response = await fetch('/api/rtsp/session', {
@@ -1116,7 +1124,7 @@ const startCamera = async () => {
       clearRtspStatusPoll();
       rtspStatusPollTimer = setInterval(updateRtspStatusFromServer, 3500);
       configureCanvas();
-      await updateCameraSelect();
+      await refreshCameraSelectSafely();
       setStatus('Câmara RTSP pronta');
       return;
     }
@@ -1129,9 +1137,11 @@ const startCamera = async () => {
       video.style.display = 'block';
       await video.play();
       configureCanvas();
-      await updateCameraSelect();
+      await refreshCameraSelectSafely();
       setStatus('Câmara de rede pronta');
-      renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+      if (navigator.mediaDevices?.enumerateDevices) {
+        renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+      }
       return;
     }
 
@@ -1142,13 +1152,28 @@ const startCamera = async () => {
     video.srcObject = stream;
     await video.play();
     configureCanvas();
-    await updateCameraSelect();
+    await refreshCameraSelectSafely();
     setStatus('Câmara pronta');
-    renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+    if (navigator.mediaDevices?.enumerateDevices) {
+      renderDeviceList(await navigator.mediaDevices.enumerateDevices());
+    }
     startSnapshotLoop();
   } catch (error) {
-    setStatus('Erro ao aceder à câmara', true);
-    alert('Não foi possível aceder à câmara. Verifique permissões, URL da câmara de rede/RTSP (e ffmpeg no servidor) ou use HTTPS/localhost.');
+    const code = error?.message || '';
+    const rtspMode = cameraConfig.mode === 'rtsp';
+    const networkMode = cameraConfig.mode === 'network';
+    if (rtspMode && (code === 'invalid_rtsp_url' || code === 'rtsp_session_error')) {
+      setStatus('URL RTSP inválido. Use formato rtsp://utilizador:senha@ip:554/h264_stream', true);
+      alert('URL RTSP inválido. Exemplo EZVIZ: rtsp://utilizador:senha@IP:554/h264_stream');
+      return;
+    }
+    if (rtspMode || networkMode) {
+      setStatus('Falha ao ligar à câmara de rede. Verifique IP/credenciais/caminho RTSP.', true);
+      alert('Falha ao ligar à câmara de rede. Verifique IP, credenciais e caminho RTSP (ex: /h264_stream).');
+      return;
+    }
+    setStatus('Erro ao aceder à câmara local', true);
+    alert('Não foi possível aceder à câmara local. Verifique permissões do navegador e use HTTPS/localhost.');
     throw error;
   }
 };
