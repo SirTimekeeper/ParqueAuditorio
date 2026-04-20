@@ -38,7 +38,7 @@ const createRtspFfmpegArgs = (url) => [
   '0',
   '-rw_timeout',
   '15000000',
-  '-stimeout',
+  '-timeout',
   '15000000',
   '-rtsp_transport',
   'tcp',
