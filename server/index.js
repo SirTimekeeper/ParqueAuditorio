@@ -3,7 +3,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const bundledFfmpegPath = require('ffmpeg-static');
 const { readConfig, writeConfig, defaultConfig } = require('./storage');
 
@@ -24,9 +24,42 @@ const MJPEG_BOUNDARY = 'frame';
 const RTSP_FRAME_STALE_MS = 12_000;
 const RTSP_MONITOR_INTERVAL_MS = 3_000;
 const RTSP_RESTART_DELAY_MS = 1_500;
+const MJPEG_CLIENT_BUFFER_LIMIT_BYTES = 256 * 1024;
 const isWindows = process.platform === 'win32';
 const configuredFfmpegPath = process.env.FFMPEG_PATH?.trim();
 const ffmpegExecutable = configuredFfmpegPath || (isWindows ? 'ffmpeg' : (bundledFfmpegPath || 'ffmpeg'));
+let ffmpegHelpTextCache = null;
+
+const getFfmpegHelpText = () => {
+  if (ffmpegHelpTextCache !== null) return ffmpegHelpTextCache;
+  try {
+    const result = spawnSync(ffmpegExecutable, ['-hide_banner', '-h', 'full'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 8_000
+    });
+    ffmpegHelpTextCache = `${result.stdout || ''}\n${result.stderr || ''}`.toLowerCase();
+  } catch (error) {
+    ffmpegHelpTextCache = '';
+  }
+  return ffmpegHelpTextCache;
+};
+
+const ffmpegSupportsOption = (optionName) => {
+  const helpText = getFfmpegHelpText();
+  if (!helpText) return false;
+  return helpText.includes(optionName.toLowerCase());
+};
+
+const createRtspTimeoutArgs = () => {
+  if (ffmpegSupportsOption('-rw_timeout')) {
+    return ['-rw_timeout', '15000000'];
+  }
+  if (ffmpegSupportsOption('-stimeout')) {
+    return ['-stimeout', '15000000'];
+  }
+  return [];
+};
 
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
 
@@ -34,19 +67,30 @@ const createRtspFfmpegArgs = (url) => [
   '-hide_banner',
   '-loglevel',
   'warning',
-  '-rtsp_transport',
-  'tcp',
-  '-rw_timeout',
-  '15000000',
   '-fflags',
-  '+genpts+discardcorrupt',
+  'nobuffer',
   '-flags',
   'low_delay',
+  '-analyzeduration',
+  '0',
+  '-probesize',
+  '32',
+  '-rtsp_transport',
+  'tcp',
+  ...createRtspTimeoutArgs(),
+  '-fflags',
+  '+discardcorrupt',
   '-i',
   url,
   '-an',
   '-vsync',
   '0',
+  '-fps_mode',
+  'passthrough',
+  '-fflags',
+  'nobuffer',
+  '-flush_packets',
+  '1',
   '-vf',
   'fps=20',
   '-q:v',
@@ -82,18 +126,7 @@ const launchRtspFfmpeg = (sessionId) => {
       const frame = current.buffer.subarray(start, end + 2);
       current.latestFrame = frame;
       current.latestFrameAt = Date.now();
-      if (current.streamClients.size) {
-        const payloadHeader = `--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`;
-        current.streamClients.forEach((client) => {
-          if (client.writableEnded) {
-            current.streamClients.delete(client);
-            return;
-          }
-          client.write(payloadHeader);
-          client.write(frame);
-          client.write('\r\n');
-        });
-      }
+      streamFrameToClients(current.streamClients, frame);
       current.buffer = current.buffer.subarray(end + 2);
       start = current.buffer.indexOf(Buffer.from([0xff, 0xd8]));
       end = current.buffer.indexOf(Buffer.from([0xff, 0xd9]), start + 2);
@@ -209,6 +242,20 @@ const writeMjpegFrame = (client, frame) => {
   client.write('\r\n');
 };
 
+const streamFrameToClients = (clients, frame) => {
+  if (!clients?.size || !frame) return;
+  clients.forEach((client) => {
+    if (client.writableEnded || client.destroyed) {
+      clients.delete(client);
+      return;
+    }
+    if (client.writableLength > MJPEG_CLIENT_BUFFER_LIMIT_BYTES) {
+      return;
+    }
+    writeMjpegFrame(client, frame);
+  });
+};
+
 const listDevices = () => Array.from(devices.values()).map((device) => ({
   id: device.id,
   label: device.label ?? 'Dispositivo',
@@ -279,13 +326,7 @@ app.post('/api/devices/:id/snapshot', (req, res) => {
     const frameData = image.startsWith('data:image/jpeg;base64,') ? image.slice('data:image/jpeg;base64,'.length) : null;
     if (frameData) {
       const frame = Buffer.from(frameData, 'base64');
-      device.streamClients.forEach((client) => {
-        if (client.writableEnded) {
-          device.streamClients.delete(client);
-          return;
-        }
-        writeMjpegFrame(client, frame);
-      });
+      streamFrameToClients(device.streamClients, frame);
     }
   }
   res.json({ ok: true });
