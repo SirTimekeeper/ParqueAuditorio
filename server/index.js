@@ -145,7 +145,7 @@ const startRtspSession = (url) => {
 const upsertDevice = (id, payload = {}) => {
   if (!id) return null;
   const now = Date.now();
-  const current = devices.get(id) ?? { id };
+  const current = devices.get(id) ?? { id, streamClients: new Set() };
   const updated = {
     ...current,
     ...payload,
@@ -154,6 +154,13 @@ const upsertDevice = (id, payload = {}) => {
   };
   devices.set(id, updated);
   return updated;
+};
+
+const writeMjpegFrame = (client, frame) => {
+  const payloadHeader = `--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`;
+  client.write(payloadHeader);
+  client.write(frame);
+  client.write('\r\n');
 };
 
 const listDevices = () => Array.from(devices.values()).map((device) => ({
@@ -221,7 +228,20 @@ app.post('/api/devices/:id/snapshot', (req, res) => {
     res.status(400).json({ ok: false, error: 'snapshot_missing' });
     return;
   }
-  upsertDevice(id, { snapshot: image, width, height });
+  const device = upsertDevice(id, { snapshot: image, width, height });
+  if (device?.streamClients?.size) {
+    const frameData = image.startsWith('data:image/jpeg;base64,') ? image.slice('data:image/jpeg;base64,'.length) : null;
+    if (frameData) {
+      const frame = Buffer.from(frameData, 'base64');
+      device.streamClients.forEach((client) => {
+        if (client.writableEnded) {
+          device.streamClients.delete(client);
+          return;
+        }
+        writeMjpegFrame(client, frame);
+      });
+    }
+  }
   res.json({ ok: true });
 });
 
@@ -236,6 +256,35 @@ app.get('/api/devices/:id/snapshot', (req, res) => {
     width: device.width ?? null,
     height: device.height ?? null,
     lastSeen: device.lastSeen
+  });
+});
+
+app.get('/api/devices/:id/stream.mjpg', (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) {
+    res.status(404).json({ ok: false, error: 'device_not_found' });
+    return;
+  }
+  if (!device.streamClients) {
+    device.streamClients = new Set();
+  }
+
+  res.status(200);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Content-Type', `multipart/x-mixed-replace; boundary=${MJPEG_BOUNDARY}`);
+  res.flushHeaders?.();
+  device.streamClients.add(res);
+
+  if (device.snapshot?.startsWith('data:image/jpeg;base64,')) {
+    const frameData = device.snapshot.slice('data:image/jpeg;base64,'.length);
+    writeMjpegFrame(res, Buffer.from(frameData, 'base64'));
+  }
+
+  req.on('close', () => {
+    const current = devices.get(req.params.id);
+    current?.streamClients?.delete(res);
   });
 });
 

@@ -131,7 +131,6 @@ let drawingLine = null;
 let roiDrawing = null;
 let animationHandle = null;
 let snapshotInterval = null;
-let remoteSnapshotInterval = null;
 let activeRtspSessionId = null;
 let activePreviewMode = 'local';
 let selectedRemoteDevice = null;
@@ -1024,29 +1023,15 @@ const setRtspPreviewMessage = (text, isError = false) => {
 const showLocalPreview = () => {
   activePreviewMode = 'local';
   selectedRemoteDevice = null;
-  if (remoteSnapshotInterval) {
-    clearInterval(remoteSnapshotInterval);
-    remoteSnapshotInterval = null;
-  }
+  remotePreview.onload = null;
+  remotePreview.onerror = null;
+  remotePreview.removeAttribute('src');
   remotePreview.style.display = 'none';
   video.style.display = 'block';
   updatePreviewStatus();
   setControlsDisabled(false);
   updateLineStatus();
   configureCanvas();
-};
-
-const fetchRemoteSnapshot = async (deviceId) => {
-  try {
-    const response = await fetch(`/api/devices/${deviceId}/snapshot`);
-    if (!response.ok) return;
-    const payload = await response.json();
-    if (payload.image) {
-      remotePreview.src = payload.image;
-    }
-  } catch (error) {
-    console.warn('Falha ao obter imagem remota.', error);
-  }
 };
 
 const showRemotePreview = (device) => {
@@ -1063,9 +1048,15 @@ const showRemotePreview = (device) => {
   if (setExitAreaBtn) setExitAreaBtn.disabled = false;
   updatePreviewStatus();
   updateLineStatus();
-  fetchRemoteSnapshot(device.id);
-  if (remoteSnapshotInterval) clearInterval(remoteSnapshotInterval);
-  remoteSnapshotInterval = setInterval(() => fetchRemoteSnapshot(device.id), 3000);
+  const streamUrl = `/api/devices/${device.id}/stream.mjpg?t=${Date.now()}`;
+  remotePreview.onload = () => {
+    configureCanvas();
+    updatePreviewStatus();
+  };
+  remotePreview.onerror = () => {
+    setStatus('Falha ao abrir stream remoto. Verifique ligação do dispositivo.', true);
+  };
+  remotePreview.src = streamUrl;
 };
 
 const startCamera = async () => {
