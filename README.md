@@ -5,7 +5,7 @@ Web app para detetar e contar entradas/saídas de automóveis num parque, com pr
 ## Requisitos
 - Node.js 18+ (recomendado)
 - Navegador com suporte a `getUserMedia`
-- Sem dependências de sistema para RTSP: o binário `ffmpeg` é instalado automaticamente via npm (`ffmpeg-static`)
+- FFmpeg disponível no sistema (recomendado no Windows via variável `PATH`)
 
 ## Como correr
 
@@ -48,7 +48,9 @@ npm start
 - No campo **Endereço da câmara por rede (HTTP/RTSP)**, pode usar um URL `rtsp://...`.
 - A app cria uma sessão RTSP no backend e converte os frames para JPEG para visualização no browser.
 - Para RTSP, o OCR de matrículas fica indisponível (apenas contagem).
-- O backend tenta usar o `ffmpeg` incluído no projeto (pacote `ffmpeg-static`), evitando instalação manual no servidor.
+- No Windows, o backend usa primeiro o `ffmpeg` disponível no `PATH` (ideal para usar a versão mais recente instalada no sistema).
+- Em Linux/macOS, continua a usar o `ffmpeg` incluído no projeto (`ffmpeg-static`) por omissão, com fallback para `ffmpeg` no `PATH`.
+- Pode forçar um binário específico com a variável de ambiente `FFMPEG_PATH` (ex.: `FFMPEG_PATH=C:\\ffmpeg\\bin\\ffmpeg.exe`).
 
 ## Como desenhar linhas/zonas
 1. Clique em **Definir Linha de Entrada** e desenhe a linha (clique/arraste).

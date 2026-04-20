@@ -4,7 +4,7 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const { spawn } = require('child_process');
-const ffmpegPath = require('ffmpeg-static');
+const bundledFfmpegPath = require('ffmpeg-static');
 const { readConfig, writeConfig, defaultConfig } = require('./storage');
 
 const app = express();
@@ -24,6 +24,9 @@ const MJPEG_BOUNDARY = 'frame';
 const RTSP_FRAME_STALE_MS = 12_000;
 const RTSP_MONITOR_INTERVAL_MS = 3_000;
 const RTSP_RESTART_DELAY_MS = 1_500;
+const isWindows = process.platform === 'win32';
+const configuredFfmpegPath = process.env.FFMPEG_PATH?.trim();
+const ffmpegExecutable = configuredFfmpegPath || (isWindows ? 'ffmpeg' : (bundledFfmpegPath || 'ffmpeg'));
 
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
 
@@ -36,8 +39,6 @@ const createRtspFfmpegArgs = (url) => [
   '32',
   '-analyzeduration',
   '0',
-  '-rw_timeout',
-  '15000000',
   '-timeout',
   '15000000',
   '-rtsp_transport',
@@ -60,7 +61,6 @@ const launchRtspFfmpeg = (sessionId) => {
   const session = rtspSessions.get(sessionId);
   if (!session || session.stopping) return;
 
-  const ffmpegExecutable = ffmpegPath || 'ffmpeg';
   const ffmpeg = spawn(ffmpegExecutable, createRtspFfmpegArgs(session.url), { stdio: ['ignore', 'pipe', 'pipe'] });
   session.process = ffmpeg;
   session.restartTimer = null;
@@ -436,6 +436,7 @@ const server = httpsOptions ? https.createServer(httpsOptions, app) : http.creat
 
 server.listen(port, () => {
   console.log(`Servidor a correr em ${protocol}://localhost:${port}`);
+  console.log(`FFmpeg em uso: ${ffmpegExecutable}`);
   if (!httpsOptions) {
     console.log('Para ativar HTTPS, coloque cert/local.key e cert/local.crt.');
   }
