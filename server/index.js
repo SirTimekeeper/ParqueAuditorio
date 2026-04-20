@@ -3,7 +3,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const bundledFfmpegPath = require('ffmpeg-static');
 const { readConfig, writeConfig, defaultConfig } = require('./storage');
 
@@ -28,6 +28,38 @@ const MJPEG_CLIENT_BUFFER_LIMIT_BYTES = 256 * 1024;
 const isWindows = process.platform === 'win32';
 const configuredFfmpegPath = process.env.FFMPEG_PATH?.trim();
 const ffmpegExecutable = configuredFfmpegPath || (isWindows ? 'ffmpeg' : (bundledFfmpegPath || 'ffmpeg'));
+let ffmpegHelpTextCache = null;
+
+const getFfmpegHelpText = () => {
+  if (ffmpegHelpTextCache !== null) return ffmpegHelpTextCache;
+  try {
+    const result = spawnSync(ffmpegExecutable, ['-hide_banner', '-h', 'full'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 8_000
+    });
+    ffmpegHelpTextCache = `${result.stdout || ''}\n${result.stderr || ''}`.toLowerCase();
+  } catch (error) {
+    ffmpegHelpTextCache = '';
+  }
+  return ffmpegHelpTextCache;
+};
+
+const ffmpegSupportsOption = (optionName) => {
+  const helpText = getFfmpegHelpText();
+  if (!helpText) return false;
+  return helpText.includes(optionName.toLowerCase());
+};
+
+const createRtspTimeoutArgs = () => {
+  if (ffmpegSupportsOption('-rw_timeout')) {
+    return ['-rw_timeout', '15000000'];
+  }
+  if (ffmpegSupportsOption('-stimeout')) {
+    return ['-stimeout', '15000000'];
+  }
+  return [];
+};
 
 const createRtspSessionId = () => Math.random().toString(36).slice(2, 10);
 
