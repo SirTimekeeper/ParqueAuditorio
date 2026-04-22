@@ -75,6 +75,8 @@ const fsCarEntriesEl = document.getElementById('fsCarEntries');
 const fsCarExitsEl = document.getElementById('fsCarExits');
 const fsOccupancyEl = document.getElementById('fsOccupancy');
 const fsRemainingSlotsEl = document.getElementById('fsRemainingSlots');
+const fsAddEntryBtn = document.getElementById('fsAddEntry');
+const fsAddExitBtn = document.getElementById('fsAddExit');
 const countsCardEl = document.querySelector('.counts-card');
 
 const tracker = new SimpleTracker();
@@ -1864,6 +1866,8 @@ manualExitsInput?.addEventListener('change', () => {
 
 bindManualMetric(entriesMetricEl, incrementEntriesManually);
 bindManualMetric(exitsMetricEl, incrementExitsManually);
+fsAddEntryBtn?.addEventListener('click', incrementEntriesManually);
+fsAddExitBtn?.addEventListener('click', incrementExitsManually);
 
 applyRemainingSlotsBtn?.addEventListener('click', () => {
   const value = Number.parseInt(manualRemainingSlotsInput?.value ?? '', 10);
