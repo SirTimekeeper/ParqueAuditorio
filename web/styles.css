@@ -129,6 +129,26 @@ canvas,
   font-size: 1.2rem;
 }
 
+.fullscreen-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+
+.fullscreen-actions button {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(17, 24, 39, 0.82);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
