@@ -467,6 +467,32 @@ app.delete('/api/rtsp/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.use((err, req, res, next) => {
+  if (!err) {
+    next();
+    return;
+  }
+
+  if (err.type === 'request.aborted') {
+    if (!res.headersSent) {
+      res.status(499).json({ ok: false, error: 'request_aborted' });
+    }
+    return;
+  }
+
+  if (err.type === 'entity.too.large') {
+    if (!res.headersSent) {
+      res.status(413).json({ ok: false, error: 'payload_too_large' });
+    }
+    return;
+  }
+
+  console.error('Erro inesperado no servidor:', err);
+  if (!res.headersSent) {
+    res.status(err.status || 500).json({ ok: false, error: 'internal_server_error' });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(staticDir, 'index.html'));
 });
