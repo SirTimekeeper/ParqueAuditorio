@@ -7,6 +7,8 @@ const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
 const statusText = document.getElementById('statusText');
 const remotePreview = document.getElementById('remotePreview');
+const dualEntryPreview = document.getElementById('dualEntryPreview');
+const dualExitPreview = document.getElementById('dualExitPreview');
 const previewStatus = document.getElementById('previewStatus');
 const videoWrapper = document.querySelector('.video-wrapper');
 
@@ -65,6 +67,10 @@ const cameraStatus = document.getElementById('cameraStatus');
 const refreshCamerasBtn = document.getElementById('refreshCameras');
 const networkCameraUrlInput = document.getElementById('networkCameraUrl');
 const setNetworkCameraBtn = document.getElementById('setNetworkCamera');
+const entryRtspUrlInput = document.getElementById('entryRtspUrl');
+const exitRtspUrlInput = document.getElementById('exitRtspUrl');
+const setDualRtspBtn = document.getElementById('setDualRtsp');
+const dualPreviewChannelSelect = document.getElementById('dualPreviewChannel');
 const fsCarEntriesEl = document.getElementById('fsCarEntries');
 const fsCarExitsEl = document.getElementById('fsCarExits');
 const fsOccupancyEl = document.getElementById('fsOccupancy');
@@ -72,6 +78,10 @@ const fsRemainingSlotsEl = document.getElementById('fsRemainingSlots');
 const countsCardEl = document.querySelector('.counts-card');
 
 const tracker = new SimpleTracker();
+const dualTrackers = {
+  entry: new SimpleTracker(),
+  exit: new SimpleTracker()
+};
 
 const DEVICE_ID_KEY = 'parque-auditorio-device-id';
 const VEHICLE_TICKET_COUNTER_KEY = 'parque-auditorio-vehicle-ticket-counter';
@@ -135,6 +145,7 @@ let roiDrawing = null;
 let animationHandle = null;
 let snapshotInterval = null;
 let activeRtspSessionId = null;
+let dualRtspSessions = { entry: null, exit: null };
 let rtspPreviewRetryTimer = null;
 let rtspStatusPollTimer = null;
 let rtspLastFrameAt = 0;
@@ -373,8 +384,7 @@ const pruneOcrIndicators = () => {
   });
 };
 
-const getPlateCropRegion = (track) => {
-  const source = getCurrentVisionSource();
+const getPlateCropRegion = (track, source = getCurrentVisionSource()) => {
   const sourceWidth = source?.videoWidth || source?.naturalWidth || 0;
   const sourceHeight = source?.videoHeight || source?.naturalHeight || 0;
   if (!sourceWidth || !sourceHeight) return null;
@@ -390,9 +400,8 @@ const getPlateCropRegion = (track) => {
   return { x: cropX, y: cropY, width: cropWidth, height: cropHeight };
 };
 
-const capturePlateCanvas = (track) => {
-  const source = getCurrentVisionSource();
-  const region = getPlateCropRegion(track);
+const capturePlateCanvas = (track, source = getCurrentVisionSource()) => {
+  const region = getPlateCropRegion(track, source);
   if (!region || !source) return null;
   const scale = 2;
   const canvas = document.createElement('canvas');
@@ -618,6 +627,22 @@ const applyConfig = (loaded) => {
     };
   }
   config = merged;
+  if (!config.camera) {
+    config.camera = { ...defaultConfig.camera };
+  }
+  config.camera.dualRtsp = {
+    enabled: false,
+    entryUrl: '',
+    exitUrl: '',
+    previewChannel: 'entry',
+    ...(config.camera.dualRtsp ?? {})
+  };
+  if (!['entry', 'exit'].includes(config.camera.dualRtsp.previewChannel)) {
+    config.camera.dualRtsp.previewChannel = 'entry';
+  }
+  if (entryRtspUrlInput) entryRtspUrlInput.value = config.camera.dualRtsp.entryUrl ?? '';
+  if (exitRtspUrlInput) exitRtspUrlInput.value = config.camera.dualRtsp.exitUrl ?? '';
+  if (dualPreviewChannelSelect) dualPreviewChannelSelect.value = config.camera.dualRtsp.previewChannel;
   ensureCountDefaults();
   persistConfig();
 };
@@ -768,9 +793,14 @@ const configureCanvas = () => {
 };
 
 const hasLocalFeed = () => {
+  if (config.camera?.mode === 'dual-rtsp') {
+    return Boolean(dualRtspSessions.entry && dualRtspSessions.exit);
+  }
   if (video.srcObject) return true;
   return Boolean(config.camera?.mode === 'rtsp' && activeRtspSessionId);
 };
+
+const isDualRtspMode = () => config.camera?.mode === 'dual-rtsp' && Boolean(config.camera?.dualRtsp?.enabled);
 
 const clearRtspStatusPoll = () => {
   if (!rtspStatusPollTimer) return;
@@ -836,6 +866,20 @@ const stopRtspFeed = async () => {
   if (remotePreview) remotePreview.removeAttribute('src');
 };
 
+const stopDualRtspFeeds = async () => {
+  const sessionIds = Object.values(dualRtspSessions).filter(Boolean);
+  dualRtspSessions = { entry: null, exit: null };
+  if (dualEntryPreview) dualEntryPreview.removeAttribute('src');
+  if (dualExitPreview) dualExitPreview.removeAttribute('src');
+  for (const sessionId of sessionIds) {
+    try {
+      await fetch(`/api/rtsp/${sessionId}`, { method: 'DELETE' });
+    } catch (error) {
+      console.warn('Falha ao terminar sessão RTSP dual.', error);
+    }
+  }
+};
+
 const stopCamera = () => {
   if (video.srcObject) {
     const tracks = video.srcObject.getTracks();
@@ -857,6 +901,7 @@ const stopCamera = () => {
   }
   video.style.display = 'block';
   stopRtspFeed();
+  stopDualRtspFeeds();
   if (snapshotInterval) {
     clearInterval(snapshotInterval);
     snapshotInterval = null;
@@ -1033,7 +1078,8 @@ const updateCameraSelect = async () => {
     { value: 'user', label: 'Frontal' },
     { value: 'environment', label: 'Traseira' },
     { value: 'network', label: 'Endereço de rede (HTTP)' },
-    { value: 'rtsp', label: 'RTSP' }
+    { value: 'rtsp', label: 'RTSP' },
+    { value: 'dual-rtsp', label: '2x RTSP (entrada + saída)' }
   ].forEach((item) => cameraSelect.appendChild(buildCameraOption(item.value, item.label)));
 
   cameras.forEach((camera, index) => {
@@ -1045,7 +1091,7 @@ const updateCameraSelect = async () => {
   let targetValue = 'auto';
   if (cameraConfig.mode === 'device' && cameraConfig.deviceId && availableIds.includes(cameraConfig.deviceId)) {
     targetValue = `device:${cameraConfig.deviceId}`;
-  } else if (cameraConfig.mode === 'user' || cameraConfig.mode === 'environment' || cameraConfig.mode === 'network' || cameraConfig.mode === 'rtsp') {
+  } else if (cameraConfig.mode === 'user' || cameraConfig.mode === 'environment' || cameraConfig.mode === 'network' || cameraConfig.mode === 'rtsp' || cameraConfig.mode === 'dual-rtsp') {
     targetValue = cameraConfig.mode;
   }
   cameraSelect.value = targetValue;
@@ -1238,6 +1284,43 @@ const startCamera = async () => {
     }
     stopCamera();
 
+    if (cameraConfig.mode === 'dual-rtsp' && cameraConfig.dualRtsp?.enabled) {
+      const entryUrl = cameraConfig.dualRtsp.entryUrl?.trim();
+      const exitUrl = cameraConfig.dualRtsp.exitUrl?.trim();
+      if (!entryUrl || !exitUrl) {
+        throw new Error('dual_rtsp_missing_urls');
+      }
+      const [entryResponse, exitResponse] = await Promise.all([
+        fetch('/api/rtsp/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: entryUrl })
+        }),
+        fetch('/api/rtsp/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: exitUrl })
+        })
+      ]);
+      if (!entryResponse.ok || !exitResponse.ok) {
+        throw new Error('dual_rtsp_session_error');
+      }
+      const entryPayload = await entryResponse.json();
+      const exitPayload = await exitResponse.json();
+      dualRtspSessions = { entry: entryPayload.sessionId, exit: exitPayload.sessionId };
+      if (dualEntryPreview) dualEntryPreview.src = `/api/rtsp/${dualRtspSessions.entry}/stream.mjpg?t=${Date.now()}`;
+      if (dualExitPreview) dualExitPreview.src = `/api/rtsp/${dualRtspSessions.exit}/stream.mjpg?t=${Date.now()}`;
+      const previewChannel = cameraConfig.dualRtsp.previewChannel === 'exit' ? 'exit' : 'entry';
+      remotePreview.src = `/api/rtsp/${dualRtspSessions[previewChannel]}/stream.mjpg?t=${Date.now()}`;
+      video.style.display = 'none';
+      remotePreview.style.display = 'block';
+      setStatus('2 câmaras RTSP ativas (entrada/saída)');
+      configureCanvas();
+      await refreshCameraSelectSafely();
+      startSnapshotLoop();
+      return;
+    }
+
     if (cameraConfig.mode === 'rtsp' && cameraConfig.networkUrl) {
       addRtspLog('Pedido de ligação', cameraConfig.networkUrl);
       const response = await fetch('/api/rtsp/session', {
@@ -1326,6 +1409,10 @@ const startCamera = async () => {
       alert('Falha ao ligar à câmara de rede. Verifique IP, credenciais e caminho RTSP (ex: /h264_stream).');
       return;
     }
+    if (cameraConfig.mode === 'dual-rtsp') {
+      setStatus('Falha ao ligar às duas câmaras RTSP. Verifique os dois URLs.', true);
+      return;
+    }
     setStatus('Erro ao aceder à câmara local', true);
     alert('Não foi possível aceder à câmara local. Verifique permissões do navegador e use HTTPS/localhost.');
     throw error;
@@ -1397,7 +1484,7 @@ const registerExitEvent = (track, nowMs) => {
   pruneOldExitEvents(nowMs);
 };
 
-const handlePlateCheck = (track, direction, fallbackTicket = null) => {
+const handlePlateCheck = (track, direction, fallbackTicket = null, source = getCurrentVisionSource()) => {
   if (!plateReady) {
     setPlateStatus('OCR indisponível');
     return;
@@ -1405,9 +1492,9 @@ const handlePlateCheck = (track, direction, fallbackTicket = null) => {
   const key = `${track.id}-${direction}`;
   if (plateChecks.has(key)) return;
   plateChecks.set(key, { status: 'pending' });
-  const cropRegion = getPlateCropRegion(track);
+  const cropRegion = getPlateCropRegion(track, source);
   upsertOcrIndicator(key, cropRegion, 'OCR: a captar');
-  const cropCanvas = capturePlateCanvas(track);
+  const cropCanvas = capturePlateCanvas(track, source);
   if (!cropCanvas) {
     setPlateStatus('Recorte indisponível');
     plateChecks.set(key, { status: 'no-crop' });
@@ -1466,63 +1553,89 @@ const handlePlateCheck = (track, direction, fallbackTicket = null) => {
 const processFrame = async () => {
   if (!counting) return;
   const nowMs = Date.now();
-  const source = getCurrentVisionSource();
-  if (!source) return;
-  const detections = await detectVehicles(source, { minScore: 0.55 });
-  const frame = Date.now();
-  const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
-  const tracks = tracker.update(filtered);
-
   const localSettings = getDeviceSettings(localDeviceId);
   const entryLine = normalizedLineToPixels(localSettings.lines.entry);
   const exitLine = normalizedLineToPixels(localSettings.lines.exit);
 
-  tracks.forEach((track) => {
-    const crossedEntryLine =
-      entryLine && withinEntryArea(track) && detectCrossing({ line: entryLine, track, lineKey: 'entry' });
-    const enteredEntryArea = localSettings.entryArea && enteredArea(track, localSettings.entryArea);
-    if ((crossedEntryLine || enteredEntryArea) && !track.counted?.entry) {
-      track.counted.entry = true;
-      const vehicleTicket = track.vehicleTicket || issueVehicleTicket();
-      track.vehicleTicket = vehicleTicket;
-      rememberActiveVehicleTicket(vehicleTicket);
-      config.counts.entries += 1;
-      if (classifyVehicleType(track) === 'motorcycle') {
-        config.counts.motorcycleEntries += 1;
+  const processDirectionalTracks = (tracks, direction, source) => {
+    tracks.forEach((track) => {
+      if (direction === 'entry') {
+        const crossedEntryLine =
+          entryLine && withinEntryArea(track) && detectCrossing({ line: entryLine, track, lineKey: 'entry' });
+        const enteredEntryArea = localSettings.entryArea && enteredArea(track, localSettings.entryArea);
+        if ((crossedEntryLine || enteredEntryArea) && !track.counted?.entry) {
+          track.counted.entry = true;
+          const vehicleTicket = track.vehicleTicket || issueVehicleTicket();
+          track.vehicleTicket = vehicleTicket;
+          rememberActiveVehicleTicket(vehicleTicket);
+          config.counts.entries += 1;
+          if (classifyVehicleType(track) === 'motorcycle') {
+            config.counts.motorcycleEntries += 1;
+          } else {
+            config.counts.carEntries += 1;
+          }
+          addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `${vehicleTicket} · #${track.id}` });
+          playEventSound('entry');
+          handlePlateCheck(track, 'entrada', vehicleTicket, source);
+        }
       } else {
-        config.counts.carEntries += 1;
+        const crossedExitLine =
+          exitLine && withinExitArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' });
+        const enteredExitArea = localSettings.exitArea && enteredArea(track, localSettings.exitArea);
+        const duplicateExit = shouldSkipDuplicateExit(track, nowMs);
+        if ((crossedExitLine || enteredExitArea) && !track.counted?.exit && !duplicateExit) {
+          track.counted.exit = true;
+          const vehicleTicket = track.vehicleTicket || getNextActiveVehicleTicket() || issueVehicleTicket();
+          track.vehicleTicket = vehicleTicket;
+          releaseActiveVehicleTicket(vehicleTicket);
+          config.counts.exits += 1;
+          if (classifyVehicleType(track) === 'motorcycle') {
+            config.counts.motorcycleExits += 1;
+          } else {
+            config.counts.carExits += 1;
+          }
+          registerExitEvent(track, nowMs);
+          addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `${vehicleTicket} · #${track.id}` });
+          playEventSound('exit');
+          handlePlateCheck(track, 'saida', vehicleTicket, source);
+        }
       }
-      addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada', detail: `${vehicleTicket} · #${track.id}` });
-      playEventSound('entry');
-      handlePlateCheck(track, 'entrada', vehicleTicket);
-    }
-    const crossedExitLine =
-      exitLine && withinExitArea(track) && detectCrossing({ line: exitLine, track, lineKey: 'exit' });
-    const enteredExitArea = localSettings.exitArea && enteredArea(track, localSettings.exitArea);
-    const duplicateExit = shouldSkipDuplicateExit(track, nowMs);
-    if ((crossedExitLine || enteredExitArea) && !track.counted?.exit && !duplicateExit) {
-      track.counted.exit = true;
-      const vehicleTicket = track.vehicleTicket || getNextActiveVehicleTicket() || issueVehicleTicket();
-      track.vehicleTicket = vehicleTicket;
-      releaseActiveVehicleTicket(vehicleTicket);
-      config.counts.exits += 1;
-      if (classifyVehicleType(track) === 'motorcycle') {
-        config.counts.motorcycleExits += 1;
-      } else {
-        config.counts.carExits += 1;
-      }
-      registerExitEvent(track, nowMs);
-      addLog({ time: new Date().toLocaleTimeString(), type: 'Saída', detail: `${vehicleTicket} · #${track.id}` });
-      playEventSound('exit');
-      handlePlateCheck(track, 'saida', vehicleTicket);
-    }
-  });
+    });
+  };
 
-  drawOverlay(tracks);
+  if (isDualRtspMode()) {
+    const frame = Date.now();
+    const entrySource = dualEntryPreview;
+    const exitSource = dualExitPreview;
+    if (!entrySource?.naturalWidth || !exitSource?.naturalWidth) return;
+    const [entryDetections, exitDetections] = await Promise.all([
+      detectVehicles(entrySource, { minScore: 0.55 }),
+      detectVehicles(exitSource, { minScore: 0.55 })
+    ]);
+    const entryTracks = dualTrackers.entry.update(entryDetections.filter(withinRoi).map((det) => ({ ...det, frame })));
+    const exitTracks = dualTrackers.exit.update(exitDetections.filter(withinRoi).map((det) => ({ ...det, frame })));
+    processDirectionalTracks(entryTracks, 'entry', entrySource);
+    processDirectionalTracks(exitTracks, 'exit', exitSource);
+    drawOverlay(config.camera.dualRtsp.previewChannel === 'exit' ? exitTracks : entryTracks);
+  } else {
+    const source = getCurrentVisionSource();
+    if (!source) return;
+    const detections = await detectVehicles(source, { minScore: 0.55 });
+    const frame = Date.now();
+    const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
+    const tracks = tracker.update(filtered);
+    processDirectionalTracks(tracks, 'entry', source);
+    processDirectionalTracks(tracks, 'exit', source);
+    drawOverlay(tracks);
+  }
   persistConfig();
 };
 
-const getCurrentVisionSource = () => (config.camera?.mode === 'rtsp' ? remotePreview : video);
+const getCurrentVisionSource = () => {
+  if (config.camera?.mode === 'rtsp') return remotePreview;
+  if (config.camera?.mode === 'dual-rtsp') return config.camera?.dualRtsp?.previewChannel === 'exit' ? dualExitPreview : dualEntryPreview;
+  return video;
+};
 
 const loop = async () => {
   const fps = Math.max(1, Number(fpsSelect.value) || 15);
@@ -1820,6 +1933,18 @@ cameraSelect.addEventListener('change', async () => {
     config.camera = { mode: value, deviceId: null, networkUrl: '' };
   } else if (value === 'network' || value === 'rtsp') {
     config.camera = { mode: value, deviceId: null, networkUrl: previousUrl };
+  } else if (value === 'dual-rtsp') {
+    config.camera = {
+      mode: 'dual-rtsp',
+      deviceId: null,
+      networkUrl: '',
+      dualRtsp: {
+        enabled: true,
+        entryUrl: entryRtspUrlInput?.value?.trim() ?? config.camera?.dualRtsp?.entryUrl ?? '',
+        exitUrl: exitRtspUrlInput?.value?.trim() ?? config.camera?.dualRtsp?.exitUrl ?? '',
+        previewChannel: dualPreviewChannelSelect?.value === 'exit' ? 'exit' : 'entry'
+      }
+    };
   } else {
     config.camera = { mode: 'auto', deviceId: null, networkUrl: '' };
   }
@@ -1830,6 +1955,10 @@ cameraSelect.addEventListener('change', async () => {
   }
   if ((value === 'network' || value === 'rtsp') && !config.camera.networkUrl) {
     setStatus('Defina o endereço da câmara de rede/RTSP.', true);
+    return;
+  }
+  if (value === 'dual-rtsp' && (!config.camera.dualRtsp?.entryUrl || !config.camera.dualRtsp?.exitUrl)) {
+    setStatus('Defina os dois URLs RTSP (entrada e saída).', true);
     return;
   }
   if (hasLocalFeed() || value !== 'auto') {
@@ -1861,6 +1990,42 @@ if (setNetworkCameraBtn) {
     await startCamera();
   });
 }
+
+if (setDualRtspBtn) {
+  setDualRtspBtn.addEventListener('click', async () => {
+    const entryUrl = entryRtspUrlInput?.value?.trim() ?? '';
+    const exitUrl = exitRtspUrlInput?.value?.trim() ?? '';
+    if (!entryUrl || !exitUrl) {
+      setStatus('Preencha os dois URLs RTSP: entrada e saída.', true);
+      return;
+    }
+    config.camera = {
+      mode: 'dual-rtsp',
+      deviceId: null,
+      networkUrl: '',
+      dualRtsp: {
+        enabled: true,
+        entryUrl,
+        exitUrl,
+        previewChannel: dualPreviewChannelSelect?.value === 'exit' ? 'exit' : 'entry'
+      }
+    };
+    if (cameraSelect) cameraSelect.value = 'dual-rtsp';
+    if (cameraStatus) cameraStatus.textContent = '2x RTSP (entrada + saída)';
+    persistConfig();
+    await startCamera();
+  });
+}
+
+dualPreviewChannelSelect?.addEventListener('change', () => {
+  if (!config.camera?.dualRtsp) return;
+  const channel = dualPreviewChannelSelect.value === 'exit' ? 'exit' : 'entry';
+  config.camera.dualRtsp.previewChannel = channel;
+  persistConfig();
+  if (isDualRtspMode() && dualRtspSessions[channel]) {
+    remotePreview.src = `/api/rtsp/${dualRtspSessions[channel]}/stream.mjpg?t=${Date.now()}`;
+  }
+});
 
 
 const handleViewportChange = () => {

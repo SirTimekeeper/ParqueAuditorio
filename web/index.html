@@ -22,6 +22,8 @@
     <section class="video-panel">
       <div class="video-wrapper">
         <img id="remotePreview" alt="Pré-visualização remota" />
+        <img id="dualEntryPreview" alt="Pré-visualização RTSP de entrada" hidden />
+        <img id="dualExitPreview" alt="Pré-visualização RTSP de saída" hidden />
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
         <div id="fullscreenStats" class="fullscreen-stats" aria-live="polite">
@@ -81,6 +83,24 @@
           <input id="networkCameraUrl" type="text" placeholder="rtsp://utilizador:senha@192.168.1.20:554/stream" />
         </label>
         <button id="setNetworkCamera" class="ghost">Usar endereço</button>
+      </div>
+      <div class="controls secondary network-controls">
+        <label class="network-input">
+          RTSP dedicado para entradas
+          <input id="entryRtspUrl" type="text" placeholder="rtsp://utilizador:senha@ip-entrada:554/h264_stream" />
+        </label>
+        <label class="network-input">
+          RTSP dedicado para saídas
+          <input id="exitRtspUrl" type="text" placeholder="rtsp://utilizador:senha@ip-saida:554/h264_stream" />
+        </label>
+        <label>
+          Pré-visualização dual
+          <select id="dualPreviewChannel">
+            <option value="entry">Câmara de entrada</option>
+            <option value="exit">Câmara de saída</option>
+          </select>
+        </label>
+        <button id="setDualRtsp" class="ghost">Usar 2 câmaras RTSP</button>
       </div>
       <p class="note">Dica RTSP (EZVIZ): experimente <code>/h264_stream</code>. Para evitar falhas quando o IP muda, reserve o IP da câmara no router (DHCP).</p>
       <div class="hint">
