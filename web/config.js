@@ -31,6 +31,9 @@ export const defaultConfig = {
       exitUrl: '',
       previewChannel: 'entry'
     }
+  },
+  capacity: {
+    normal: 112
   }
 };
 
