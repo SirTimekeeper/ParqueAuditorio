@@ -374,29 +374,33 @@ const pruneOcrIndicators = () => {
 };
 
 const getPlateCropRegion = (track) => {
-  if (!video.videoWidth || !video.videoHeight) return null;
+  const source = getCurrentVisionSource();
+  const sourceWidth = source?.videoWidth || source?.naturalWidth || 0;
+  const sourceHeight = source?.videoHeight || source?.naturalHeight || 0;
+  if (!sourceWidth || !sourceHeight) return null;
   const plateHeight = track.height * 0.35;
   const plateY = track.y + track.height * 0.55;
   const plateX = track.x;
   const plateWidth = track.width;
   const cropX = Math.max(0, Math.floor(plateX));
   const cropY = Math.max(0, Math.floor(plateY));
-  const cropWidth = Math.min(video.videoWidth - cropX, Math.floor(plateWidth));
-  const cropHeight = Math.min(video.videoHeight - cropY, Math.floor(plateHeight));
+  const cropWidth = Math.min(sourceWidth - cropX, Math.floor(plateWidth));
+  const cropHeight = Math.min(sourceHeight - cropY, Math.floor(plateHeight));
   if (cropWidth <= 0 || cropHeight <= 0) return null;
   return { x: cropX, y: cropY, width: cropWidth, height: cropHeight };
 };
 
 const capturePlateCanvas = (track) => {
+  const source = getCurrentVisionSource();
   const region = getPlateCropRegion(track);
-  if (!region) return null;
+  if (!region || !source) return null;
   const scale = 2;
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.floor(region.width * scale));
   canvas.height = Math.max(1, Math.floor(region.height * scale));
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
-  ctx.drawImage(video, region.x, region.y, region.width, region.height, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(source, region.x, region.y, region.width, region.height, 0, 0, canvas.width, canvas.height);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
   for (let i = 0; i < data.length; i += 4) {
@@ -1462,7 +1466,8 @@ const handlePlateCheck = (track, direction, fallbackTicket = null) => {
 const processFrame = async () => {
   if (!counting) return;
   const nowMs = Date.now();
-  const source = config.camera?.mode === 'rtsp' ? remotePreview : video;
+  const source = getCurrentVisionSource();
+  if (!source) return;
   const detections = await detectVehicles(source, { minScore: 0.55 });
   const frame = Date.now();
   const filtered = detections.filter(withinRoi).map((det) => ({ ...det, frame }));
@@ -1517,6 +1522,8 @@ const processFrame = async () => {
   persistConfig();
 };
 
+const getCurrentVisionSource = () => (config.camera?.mode === 'rtsp' ? remotePreview : video);
+
 const loop = async () => {
   const fps = Math.max(1, Number(fpsSelect.value) || 15);
   const interval = 1000 / fps;
@@ -1548,10 +1555,6 @@ const toggleCounting = async () => {
       await startCamera();
     }
     await initVision();
-    if (config.camera?.mode === 'rtsp') {
-      plateReady = false;
-      setPlateStatus('OCR indisponível em RTSP');
-    } else {
     try {
       await initPlateRecognition();
       plateReady = true;
@@ -1560,7 +1563,6 @@ const toggleCounting = async () => {
       console.warn('OCR indisponível.', error);
       plateReady = false;
       setPlateStatus('OCR indisponível');
-    }
     }
     counting = true;
     ensureAudioContext();

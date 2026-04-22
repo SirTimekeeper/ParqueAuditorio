@@ -47,7 +47,7 @@ npm start
 ## Câmara RTSP
 - No campo **Endereço da câmara por rede (HTTP/RTSP)**, pode usar um URL `rtsp://...`.
 - A app cria uma sessão RTSP no backend e converte os frames para JPEG para visualização no browser.
-- Para RTSP, o OCR de matrículas fica indisponível (apenas contagem).
+- Para RTSP, o OCR de matrículas também está disponível (a qualidade depende da nitidez/bitrate do stream).
 - No Windows, o backend usa primeiro o `ffmpeg` disponível no `PATH` (ideal para usar a versão mais recente instalada no sistema).
 - Em Linux/macOS, continua a usar o `ffmpeg` incluído no projeto (`ffmpeg-static`) por omissão, com fallback para `ffmpeg` no `PATH`.
 - Pode forçar um binário específico com a variável de ambiente `FFMPEG_PATH` (ex.: `FFMPEG_PATH=C:\\ffmpeg\\bin\\ffmpeg.exe`).
