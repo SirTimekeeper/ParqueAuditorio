@@ -170,14 +170,19 @@
             Lugares vazios disponíveis
             <input id="manualRemainingSlotsInput" type="number" min="0" max="112" step="1" value="112" />
           </label>
+          <label>
+            Capacidade do parque
+            <input id="parkCapacityInput" type="number" min="1" step="1" value="112" />
+          </label>
         </div>
         <div class="controls secondary">
           <button id="applyRemainingSlots" class="ghost">Aplicar lugares vazios</button>
+          <button id="applyParkCapacity" class="ghost">Aplicar capacidade</button>
         </div>
         <div class="capacity metrics secondary">
           <div>
             <span>Capacidade</span>
-            <strong>112</strong>
+            <strong id="normalCapacity">112</strong>
           </div>
           <div>
             <span>Lugares disponíveis</span>

@@ -45,7 +45,10 @@ const resetCountsBtn = document.getElementById('resetCounts');
 const manualEntriesInput = document.getElementById('manualEntriesInput');
 const manualExitsInput = document.getElementById('manualExitsInput');
 const manualRemainingSlotsInput = document.getElementById('manualRemainingSlotsInput');
+const parkCapacityInput = document.getElementById('parkCapacityInput');
 const applyRemainingSlotsBtn = document.getElementById('applyRemainingSlots');
+const applyParkCapacityBtn = document.getElementById('applyParkCapacity');
+const normalCapacityEl = document.getElementById('normalCapacity');
 
 const addPriorityBtn = document.getElementById('addPriority');
 const removePriorityBtn = document.getElementById('removePriority');
@@ -205,6 +208,14 @@ const ensureCountDefaults = () => {
   config.counts.motorcycleExits = config.counts.motorcycleExits ?? 0;
 };
 
+const ensureCapacityDefaults = () => {
+  if (!config.capacity || typeof config.capacity !== 'object') {
+    config.capacity = { normal: DEFAULT_NORMAL_CAPACITY };
+  }
+  const parsedNormal = Number.parseInt(config.capacity.normal, 10);
+  config.capacity.normal = Number.isFinite(parsedNormal) && parsedNormal > 0 ? parsedNormal : DEFAULT_NORMAL_CAPACITY;
+};
+
 const classifyVehicleType = (track) => (track.className === 'motorcycle' ? 'motorcycle' : 'car');
 
 const syncTypedCountsWithTotals = () => {
@@ -230,7 +241,7 @@ const syncTypedCountsWithTotals = () => {
   normalizePair('exits', 'carExits', 'motorcycleExits');
 };
 
-const maxNormal = 112;
+const DEFAULT_NORMAL_CAPACITY = 112;
 const maxMR = 4;
 const isLandscape = () =>
   window.matchMedia?.('(orientation: landscape)')?.matches ?? window.innerWidth > window.innerHeight;
@@ -474,7 +485,9 @@ const updateLineStatus = () => {
 };
 
 const updateCountsUI = () => {
+  ensureCapacityDefaults();
   syncTypedCountsWithTotals();
+  const normalCapacity = config.capacity.normal;
   entriesEl.textContent = config.counts.entries;
   exitsEl.textContent = config.counts.exits;
   if (carEntriesEl) carEntriesEl.textContent = config.counts.carEntries;
@@ -490,7 +503,7 @@ const updateCountsUI = () => {
   const occupancy = Math.max(0, rawOccupancy);
   const occupancyMR = Math.min(config.counts.mrCount, occupancy, maxMR);
   const occupancyNormal = Math.max(0, occupancy - occupancyMR);
-  const remainingSlots = Math.max(0, maxNormal - occupancyNormal);
+  const remainingSlots = Math.max(0, normalCapacity - occupancyNormal);
 
   occupancyEl.textContent = occupancy;
   if (fsOccupancyEl) fsOccupancyEl.textContent = occupancy;
@@ -498,13 +511,18 @@ const updateCountsUI = () => {
   occupancyMREl.textContent = occupancyMR;
   if (remainingSlotsEl) remainingSlotsEl.textContent = remainingSlots;
   if (fsRemainingSlotsEl) fsRemainingSlotsEl.textContent = remainingSlots;
-  if (manualRemainingSlotsInput) manualRemainingSlotsInput.value = String(remainingSlots);
+  if (manualRemainingSlotsInput) {
+    manualRemainingSlotsInput.max = String(normalCapacity);
+    manualRemainingSlotsInput.value = String(remainingSlots);
+  }
+  if (parkCapacityInput) parkCapacityInput.value = String(normalCapacity);
+  if (normalCapacityEl) normalCapacityEl.textContent = String(normalCapacity);
 
-  warningFull.classList.toggle('active', occupancyNormal >= maxNormal);
+  warningFull.classList.toggle('active', occupancyNormal >= normalCapacity);
   warningMR.classList.toggle('active', occupancyMR >= maxMR);
 
   if (countsCardEl) {
-    const normalizedUsage = Math.max(0, Math.min(1, occupancyNormal / maxNormal));
+    const normalizedUsage = Math.max(0, Math.min(1, occupancyNormal / normalCapacity));
     const state =
       normalizedUsage >= 1
         ? 'full'
@@ -646,6 +664,7 @@ const applyConfig = (loaded) => {
   if (exitRtspUrlInput) exitRtspUrlInput.value = config.camera.dualRtsp.exitUrl ?? '';
   if (dualPreviewChannelSelect) dualPreviewChannelSelect.value = config.camera.dualRtsp.previewChannel;
   ensureCountDefaults();
+  ensureCapacityDefaults();
   persistConfig();
 };
 
@@ -1870,10 +1889,11 @@ fsAddEntryBtn?.addEventListener('click', incrementEntriesManually);
 fsAddExitBtn?.addEventListener('click', incrementExitsManually);
 
 applyRemainingSlotsBtn?.addEventListener('click', () => {
+  const normalCapacity = config.capacity?.normal ?? DEFAULT_NORMAL_CAPACITY;
   const value = Number.parseInt(manualRemainingSlotsInput?.value ?? '', 10);
-  const requestedRemainingSlots = Number.isFinite(value) ? value : maxNormal;
-  const remainingSlots = Math.max(0, Math.min(maxNormal, requestedRemainingSlots));
-  const targetOccupancyNormal = maxNormal - remainingSlots;
+  const requestedRemainingSlots = Number.isFinite(value) ? value : normalCapacity;
+  const remainingSlots = Math.max(0, Math.min(normalCapacity, requestedRemainingSlots));
+  const targetOccupancyNormal = normalCapacity - remainingSlots;
   const targetOccupancyMR = Math.min(config.counts.mrCount, maxMR);
   const targetOccupancy = targetOccupancyNormal + targetOccupancyMR;
   const requiredEntries = config.counts.exits + config.counts.priorityAdjustments + targetOccupancy;
@@ -1887,6 +1907,14 @@ applyRemainingSlotsBtn?.addEventListener('click', () => {
     type: 'Lugares vazios',
     detail: String(remainingSlots)
   });
+  persistConfig();
+});
+
+applyParkCapacityBtn?.addEventListener('click', () => {
+  const value = Number.parseInt(parkCapacityInput?.value ?? '', 10);
+  const capacity = Number.isFinite(value) ? Math.max(1, value) : DEFAULT_NORMAL_CAPACITY;
+  config.capacity.normal = capacity;
+  addLog({ time: new Date().toLocaleTimeString(), type: 'Capacidade', detail: String(capacity) });
   persistConfig();
 });
 
