@@ -24,7 +24,13 @@ export const defaultConfig = {
   camera: {
     mode: 'auto',
     deviceId: null,
-    networkUrl: ''
+    networkUrl: '',
+    dualRtsp: {
+      enabled: false,
+      entryUrl: '',
+      exitUrl: '',
+      previewChannel: 'entry'
+    }
   }
 };
 
