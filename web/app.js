@@ -349,15 +349,36 @@ const updateFullscreenButtonLabel = () => {
 
 const normalizePlateValue = (value) => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+const PLATE_PATTERNS = [
+  /^[A-Z]{2}[0-9]{2}[A-Z]{2}$/,
+  /^[0-9]{2}[A-Z]{2}[0-9]{2}$/,
+  /^[0-9]{2}[0-9]{2}[A-Z]{2}$/,
+  /^[A-Z]{2}[0-9]{4}$/
+];
+
+const getPlateScore = (value) => {
+  if (!value) return -1;
+  let score = 0;
+  const length = value.length;
+  if (length >= 6 && length <= 8) score += 3;
+  if (length === 6) score += 2;
+  if (/[A-Z]/.test(value)) score += 1;
+  if (/[0-9]/.test(value)) score += 1;
+  if (PLATE_PATTERNS.some((pattern) => pattern.test(value))) score += 4;
+  return score;
+};
+
 const extractPlateCandidate = (rawText) => {
   if (!rawText) return '';
-  const matches = rawText.toUpperCase().match(/[A-Z0-9]{5,8}/g) ?? [];
-  if (matches.length) {
-    return matches.sort((a, b) => b.length - a.length)[0];
-  }
+  const chunks = (rawText.toUpperCase().match(/[A-Z0-9-]{5,12}/g) ?? [])
+    .map((chunk) => normalizePlateValue(chunk))
+    .filter((chunk) => chunk.length >= 5 && chunk.length <= 8);
   const normalized = normalizePlateValue(rawText);
-  if (normalized.length >= 5 && normalized.length <= 8) return normalized;
-  return '';
+  if (normalized.length >= 5 && normalized.length <= 8) {
+    chunks.push(normalized);
+  }
+  if (!chunks.length) return '';
+  return chunks.sort((a, b) => getPlateScore(b) - getPlateScore(a) || b.length - a.length)[0] || '';
 };
 
 const isPriorityPlate = (plate) => {
@@ -401,10 +422,11 @@ const getPlateCropRegion = (track, source = getCurrentVisionSource()) => {
   const sourceWidth = source?.videoWidth || source?.naturalWidth || 0;
   const sourceHeight = source?.videoHeight || source?.naturalHeight || 0;
   if (!sourceWidth || !sourceHeight) return null;
-  const plateHeight = track.height * 0.35;
-  const plateY = track.y + track.height * 0.55;
-  const plateX = track.x;
-  const plateWidth = track.width;
+  const horizontalMargin = track.width * 0.08;
+  const plateHeight = track.height * 0.45;
+  const plateY = track.y + track.height * 0.45;
+  const plateX = track.x + horizontalMargin;
+  const plateWidth = Math.max(0, track.width - horizontalMargin * 2);
   const cropX = Math.max(0, Math.floor(plateX));
   const cropY = Math.max(0, Math.floor(plateY));
   const cropWidth = Math.min(sourceWidth - cropX, Math.floor(plateWidth));
@@ -434,6 +456,25 @@ const capturePlateCanvas = (track, source = getCurrentVisionSource()) => {
     data[i] = contrast;
     data[i + 1] = contrast;
     data[i + 2] = contrast;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+};
+
+const createInvertedCanvas = (sourceCanvas) => {
+  if (!sourceCanvas) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = sourceCanvas.width;
+  canvas.height = sourceCanvas.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(sourceCanvas, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255 - data[i];
+    data[i + 1] = 255 - data[i + 1];
+    data[i + 2] = 255 - data[i + 2];
   }
   ctx.putImageData(imageData, 0, 0);
   return canvas;
@@ -1525,8 +1566,16 @@ const handlePlateCheck = (track, direction, fallbackTicket = null, source = getC
   setPlateStatus('A reconhecer...', '...');
   upsertOcrIndicator(key, cropRegion, 'OCR: a reconhecer');
   queuePlateTask(async () => {
-    const rawText = await recognizePlateFromCanvas(cropCanvas);
-    const plate = extractPlateCandidate(rawText);
+    let rawText = await recognizePlateFromCanvas(cropCanvas);
+    let plate = extractPlateCandidate(rawText);
+    if (!plate) {
+      const invertedCanvas = createInvertedCanvas(cropCanvas);
+      if (invertedCanvas) {
+        const invertedText = await recognizePlateFromCanvas(invertedCanvas);
+        rawText = `${rawText}\n${invertedText}`.trim();
+        plate = extractPlateCandidate(rawText);
+      }
+    }
     if (!plate) {
       setPlateStatus('Matrícula não detetada', '-');
       plateChecks.set(key, { status: 'miss' });
