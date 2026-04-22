@@ -288,6 +288,21 @@ canvas,
   text-align: center;
 }
 
+.metrics .manual-metric {
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.metrics .manual-metric:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(36, 87, 255, 0.14);
+}
+
+.metrics .manual-metric:focus-visible {
+  outline: 3px solid rgba(36, 87, 255, 0.32);
+  outline-offset: 2px;
+}
+
 .metrics span {
   display: block;
   font-size: 0.85rem;

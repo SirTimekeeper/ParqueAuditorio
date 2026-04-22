@@ -12,6 +12,8 @@ const videoWrapper = document.querySelector('.video-wrapper');
 
 const entriesEl = document.getElementById('entries');
 const exitsEl = document.getElementById('exits');
+const entriesMetricEl = document.getElementById('entriesMetric');
+const exitsMetricEl = document.getElementById('exitsMetric');
 const occupancyEl = document.getElementById('occupancy');
 const carEntriesEl = document.getElementById('carEntries');
 const carExitsEl = document.getElementById('carExits');
@@ -500,6 +502,32 @@ const updateCountsUI = () => {
               : 'low';
     countsCardEl.dataset.occupancyState = state;
   }
+};
+
+const incrementEntriesManually = () => {
+  config.counts.entries += 1;
+  config.counts.carEntries += 1;
+  addLog({ time: new Date().toLocaleTimeString(), type: 'Entrada manual', detail: '+1 (clique)' });
+  persistConfig();
+};
+
+const incrementExitsManually = () => {
+  const maxExits = Math.max(0, config.counts.entries - config.counts.priorityAdjustments);
+  if (config.counts.exits >= maxExits) return;
+  config.counts.exits += 1;
+  config.counts.carExits += 1;
+  addLog({ time: new Date().toLocaleTimeString(), type: 'Saída manual', detail: '+1 (clique)' });
+  persistConfig();
+};
+
+const bindManualMetric = (element, callback) => {
+  if (!element) return;
+  element.addEventListener('click', callback);
+  element.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    callback();
+  });
 };
 
 const renderPriorityList = () => {
@@ -1718,6 +1746,9 @@ manualExitsInput?.addEventListener('change', () => {
   addLog({ time: new Date().toLocaleTimeString(), type: 'Saída manual', detail: String(config.counts.exits) });
   persistConfig();
 });
+
+bindManualMetric(entriesMetricEl, incrementEntriesManually);
+bindManualMetric(exitsMetricEl, incrementExitsManually);
 
 applyRemainingSlotsBtn?.addEventListener('click', () => {
   const value = Number.parseInt(manualRemainingSlotsInput?.value ?? '', 10);
