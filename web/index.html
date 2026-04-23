@@ -267,6 +267,34 @@
       </section>
 
       <section class="card">
+        <h2>Deteção de símbolo em viaturas</h2>
+        <p class="note">Carregue um ficheiro BMP do símbolo e escolha se essas viaturas devem ser contadas ou excluídas.</p>
+        <div class="controls secondary symbol-controls">
+          <label class="inline-checkbox">
+            <input id="symbolDetectionEnabled" type="checkbox" />
+            Ativar deteção de símbolo
+          </label>
+          <label>
+            Ação
+            <select id="symbolDetectionMode">
+              <option value="count">Contar normalmente</option>
+              <option value="exclude">Excluir da contagem</option>
+            </select>
+          </label>
+        </div>
+        <div class="controls secondary symbol-controls">
+          <label class="network-input">
+            Ficheiro BMP do símbolo
+            <input id="symbolTemplateFile" type="file" accept=".bmp,image/bmp" />
+          </label>
+          <label class="network-input">
+            Nome do símbolo carregado
+            <input id="symbolTemplateName" type="text" readonly placeholder="Nenhum ficheiro carregado" />
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
         <h2>Histórico</h2>
         <ul id="log"></ul>
       </section>
