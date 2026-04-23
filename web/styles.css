@@ -220,6 +220,30 @@ canvas,
   color: var(--muted);
 }
 
+.readonly-list .list-item {
+  cursor: default;
+}
+
+.readonly-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.readonly-state.online {
+  background: #e8f8ee;
+  color: #1f7a3d;
+}
+
+.readonly-state.offline {
+  background: #fbe9e9;
+  color: #9f2a2a;
+}
+
 
 .controls.secondary.network-controls {
   align-items: flex-end;

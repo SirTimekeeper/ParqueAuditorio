@@ -273,7 +273,8 @@ const listDevices = () => Array.from(devices.values()).map((device) => ({
   id: device.id,
   label: device.label ?? 'Dispositivo',
   lastSeen: device.lastSeen,
-  hasSnapshot: Boolean(device.snapshot)
+  hasSnapshot: Boolean(device.snapshot),
+  state: device.state ?? null
 }));
 
 app.get('/api/config', (req, res) => {
@@ -308,8 +309,8 @@ app.get('/api/devices', (req, res) => {
 });
 
 app.post('/api/devices/register', (req, res) => {
-  const { id, label } = req.body || {};
-  const device = upsertDevice(id, { label });
+  const { id, label, state } = req.body || {};
+  const device = upsertDevice(id, { label, state });
   if (!device) {
     res.status(400).json({ ok: false, error: 'device_id_missing' });
     return;
@@ -318,8 +319,8 @@ app.post('/api/devices/register', (req, res) => {
 });
 
 app.post('/api/devices/heartbeat', (req, res) => {
-  const { id } = req.body || {};
-  const device = upsertDevice(id);
+  const { id, state } = req.body || {};
+  const device = upsertDevice(id, { state });
   if (!device) {
     res.status(400).json({ ok: false, error: 'device_id_missing' });
     return;

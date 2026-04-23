@@ -28,6 +28,7 @@ const warningFull = document.getElementById('warningFull');
 const warningMR = document.getElementById('warningMR');
 const deviceList = document.getElementById('deviceList');
 const remoteDeviceList = document.getElementById('remoteDeviceList');
+const parkDeviceStateList = document.getElementById('parkDeviceStateList');
 const entryLineStatus = document.getElementById('entryLineStatus');
 const exitLineStatus = document.getElementById('exitLineStatus');
 const entryAreaStatus = document.getElementById('entryAreaStatus');
@@ -1217,6 +1218,56 @@ const formatLastSeen = (timestamp) => {
   return `Há ${hours}h`;
 };
 
+const isDeviceOnline = (lastSeen) => {
+  if (!lastSeen) return false;
+  return Date.now() - lastSeen <= 20_000;
+};
+
+const renderParkDeviceStates = (devices = []) => {
+  if (!parkDeviceStateList) return;
+  parkDeviceStateList.innerHTML = '';
+  if (!devices.length) {
+    const li = document.createElement('li');
+    li.className = 'list-item';
+    li.textContent = 'Sem dispositivos ligados.';
+    parkDeviceStateList.appendChild(li);
+    return;
+  }
+
+  devices.forEach((device) => {
+    const li = document.createElement('li');
+    li.className = 'list-item';
+    const title = document.createElement('span');
+    const label = device.id === localDeviceId ? `${device.label ?? 'Dispositivo'} (este)` : device.label ?? 'Dispositivo';
+    title.textContent = label;
+    li.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'device-meta';
+
+    const stateBadge = document.createElement('span');
+    stateBadge.className = `readonly-state ${isDeviceOnline(device.lastSeen) ? 'online' : 'offline'}`;
+    stateBadge.textContent = isDeviceOnline(device.lastSeen) ? 'Online' : 'Offline';
+    meta.appendChild(stateBadge);
+
+    const activity = document.createElement('span');
+    activity.textContent = formatLastSeen(device.lastSeen);
+    meta.appendChild(activity);
+
+    const occupancy = document.createElement('span');
+    const occupancyValue = Number.isFinite(device.state?.occupancy) ? device.state.occupancy : '—';
+    occupancy.textContent = `Ocupação: ${occupancyValue}`;
+    meta.appendChild(occupancy);
+
+    const countState = document.createElement('span');
+    countState.textContent = `Contagem: ${device.state?.counting ? 'ativa' : 'parada'}`;
+    meta.appendChild(countState);
+
+    li.appendChild(meta);
+    parkDeviceStateList.appendChild(li);
+  });
+};
+
 const renderRemoteDevices = (devices = []) => {
   if (!remoteDeviceList) return;
   remoteDeviceList.innerHTML = '';
@@ -1275,11 +1326,21 @@ const fetchRemoteDevices = async () => {
     const response = await fetch('/api/devices');
     if (!response.ok) return;
     const payload = await response.json();
-    renderRemoteDevices(payload.devices ?? []);
+    const devices = payload.devices ?? [];
+    renderRemoteDevices(devices);
+    renderParkDeviceStates(devices);
   } catch (error) {
     console.warn('Falha ao carregar dispositivos remotos.', error);
   }
 };
+
+const getLocalParkState = () => ({
+  counting,
+  occupancy: Number(config.counts?.occupancy ?? 0),
+  entries: Number(config.counts?.entries ?? 0),
+  exits: Number(config.counts?.exits ?? 0),
+  updatedAt: Date.now()
+});
 
 const updateCameraSelect = async () => {
   if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -1340,7 +1401,7 @@ const registerDevice = async () => {
     await fetch('/api/devices/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: localDeviceId, label: localDeviceLabel })
+      body: JSON.stringify({ id: localDeviceId, label: localDeviceLabel, state: getLocalParkState() })
     });
   } catch (error) {
     console.warn('Falha ao registar dispositivo.', error);
@@ -1352,7 +1413,7 @@ const sendHeartbeat = async () => {
     await fetch('/api/devices/heartbeat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: localDeviceId })
+      body: JSON.stringify({ id: localDeviceId, state: getLocalParkState() })
     });
   } catch (error) {
     console.warn('Falha ao atualizar presença.', error);
