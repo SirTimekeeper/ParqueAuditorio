@@ -62,6 +62,10 @@ const logList = document.getElementById('log');
 const rtspLogList = document.getElementById('rtspLog');
 const lastPlateEl = document.getElementById('lastPlate');
 const plateStatusEl = document.getElementById('plateStatus');
+const symbolDetectionEnabledInput = document.getElementById('symbolDetectionEnabled');
+const symbolDetectionModeSelect = document.getElementById('symbolDetectionMode');
+const symbolTemplateFileInput = document.getElementById('symbolTemplateFile');
+const symbolTemplateNameInput = document.getElementById('symbolTemplateName');
 
 const resolutionSelect = document.getElementById('resolutionSelect');
 const fpsSelect = document.getElementById('fpsSelect');
@@ -164,6 +168,14 @@ let plateQueue = Promise.resolve();
 const plateChecks = new Map();
 const ocrIndicators = new Map();
 const OCR_INDICATOR_TTL_MS = 2200;
+const symbolIndicators = new Map();
+const SYMBOL_INDICATOR_TTL_MS = 2200;
+const symbolTemplateState = {
+  image: null,
+  width: 0,
+  height: 0,
+  grayPixels: null
+};
 const rtspLogEntries = [];
 let audioContext = null;
 
@@ -416,6 +428,128 @@ const pruneOcrIndicators = () => {
       ocrIndicators.delete(key);
     }
   });
+};
+
+const ensureSymbolDetectionDefaults = () => {
+  if (!config.symbolDetection || typeof config.symbolDetection !== 'object') {
+    config.symbolDetection = { ...defaultConfig.symbolDetection };
+  }
+  config.symbolDetection.enabled = Boolean(config.symbolDetection.enabled);
+  config.symbolDetection.mode = config.symbolDetection.mode === 'exclude' ? 'exclude' : 'count';
+  const parsedSimilarity = Number(config.symbolDetection.minSimilarity);
+  config.symbolDetection.minSimilarity =
+    Number.isFinite(parsedSimilarity) && parsedSimilarity > 0 && parsedSimilarity < 1 ? parsedSimilarity : 0.78;
+  config.symbolDetection.templateName = String(config.symbolDetection.templateName ?? '');
+  config.symbolDetection.templateDataUrl = String(config.symbolDetection.templateDataUrl ?? '');
+};
+
+const upsertSymbolIndicator = (key, region, recognized, similarity) => {
+  if (!region) return;
+  const percentage = Number.isFinite(similarity) ? `${Math.round(similarity * 100)}%` : '--';
+  symbolIndicators.set(key, {
+    ...region,
+    recognized: Boolean(recognized),
+    label: recognized ? `Símbolo: sim (${percentage})` : `Símbolo: não (${percentage})`,
+    expiresAt: Date.now() + SYMBOL_INDICATOR_TTL_MS
+  });
+};
+
+const pruneSymbolIndicators = () => {
+  const now = Date.now();
+  symbolIndicators.forEach((indicator, key) => {
+    if (indicator.expiresAt <= now) {
+      symbolIndicators.delete(key);
+    }
+  });
+};
+
+const clearSymbolTemplateState = () => {
+  symbolTemplateState.image = null;
+  symbolTemplateState.width = 0;
+  symbolTemplateState.height = 0;
+  symbolTemplateState.grayPixels = null;
+};
+
+const loadSymbolTemplateFromDataUrl = async (dataUrl) => {
+  if (!dataUrl) {
+    clearSymbolTemplateState();
+    return false;
+  }
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const maxSide = 72;
+      const ratio = Math.max(image.width, image.height) || 1;
+      const width = Math.max(12, Math.round((image.width / ratio) * maxSide));
+      const height = Math.max(12, Math.round((image.height / ratio) * maxSide));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        clearSymbolTemplateState();
+        resolve(false);
+        return;
+      }
+      ctx.drawImage(image, 0, 0, width, height);
+      const { data } = ctx.getImageData(0, 0, width, height);
+      const grayPixels = new Float32Array(width * height);
+      for (let i = 0; i < grayPixels.length; i += 1) {
+        const base = i * 4;
+        grayPixels[i] = 0.299 * data[base] + 0.587 * data[base + 1] + 0.114 * data[base + 2];
+      }
+      symbolTemplateState.image = image;
+      symbolTemplateState.width = width;
+      symbolTemplateState.height = height;
+      symbolTemplateState.grayPixels = grayPixels;
+      resolve(true);
+    };
+    image.onerror = () => {
+      clearSymbolTemplateState();
+      resolve(false);
+    };
+    image.src = dataUrl;
+  });
+};
+
+const detectSymbolOnTrack = (track, source = getCurrentVisionSource()) => {
+  if (!config.symbolDetection?.enabled || !symbolTemplateState.grayPixels || !source) {
+    return { checked: false, recognized: false, similarity: 0 };
+  }
+  const vehicleType = classifyVehicleType(track);
+  if (vehicleType !== 'car') {
+    return { checked: false, recognized: false, similarity: 0 };
+  }
+  const sourceWidth = source.videoWidth || source.naturalWidth || 0;
+  const sourceHeight = source.videoHeight || source.naturalHeight || 0;
+  if (!sourceWidth || !sourceHeight) {
+    return { checked: false, recognized: false, similarity: 0 };
+  }
+  const cropX = Math.max(0, Math.floor(track.x));
+  const cropY = Math.max(0, Math.floor(track.y));
+  const cropWidth = Math.min(sourceWidth - cropX, Math.max(1, Math.floor(track.width)));
+  const cropHeight = Math.min(sourceHeight - cropY, Math.max(1, Math.floor(track.height)));
+  if (cropWidth <= 2 || cropHeight <= 2) {
+    return { checked: false, recognized: false, similarity: 0 };
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = symbolTemplateState.width;
+  canvas.height = symbolTemplateState.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return { checked: false, recognized: false, similarity: 0 };
+  ctx.drawImage(source, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let diff = 0;
+  const pixels = symbolTemplateState.grayPixels;
+  for (let i = 0; i < pixels.length; i += 1) {
+    const base = i * 4;
+    const gray = 0.299 * data[base] + 0.587 * data[base + 1] + 0.114 * data[base + 2];
+    diff += Math.abs(gray - pixels[i]);
+  }
+  const avgDiff = diff / pixels.length;
+  const similarity = Math.max(0, Math.min(1, 1 - avgDiff / 255));
+  const recognized = similarity >= config.symbolDetection.minSimilarity;
+  return { checked: true, recognized, similarity };
 };
 
 const getPlateCropRegion = (track, source = getCurrentVisionSource()) => {
@@ -704,6 +838,11 @@ const applyConfig = (loaded) => {
   if (entryRtspUrlInput) entryRtspUrlInput.value = config.camera.dualRtsp.entryUrl ?? '';
   if (exitRtspUrlInput) exitRtspUrlInput.value = config.camera.dualRtsp.exitUrl ?? '';
   if (dualPreviewChannelSelect) dualPreviewChannelSelect.value = config.camera.dualRtsp.previewChannel;
+  ensureSymbolDetectionDefaults();
+  if (symbolDetectionEnabledInput) symbolDetectionEnabledInput.checked = config.symbolDetection.enabled;
+  if (symbolDetectionModeSelect) symbolDetectionModeSelect.value = config.symbolDetection.mode;
+  if (symbolTemplateNameInput) symbolTemplateNameInput.value = config.symbolDetection.templateName || '';
+  loadSymbolTemplateFromDataUrl(config.symbolDetection.templateDataUrl);
   ensureCountDefaults();
   ensureCapacityDefaults();
   persistConfig();
@@ -722,6 +861,7 @@ const drawOverlay = (tracks = []) => {
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   pruneOcrIndicators();
+  pruneSymbolIndicators();
 
   const activeDeviceId = getActiveDeviceId();
   const activeSettings = activeDeviceId ? getDeviceSettings(activeDeviceId) : null;
@@ -799,6 +939,19 @@ const drawOverlay = (tracks = []) => {
     ctx.fillStyle = '#fef3c7';
     ctx.font = '12px sans-serif';
     ctx.fillText(indicator.label || 'OCR', x + 4, Math.max(12, y - 6));
+  });
+
+  symbolIndicators.forEach((indicator) => {
+    const x = Math.max(0, indicator.x);
+    const y = Math.max(0, indicator.y);
+    const width = Math.max(1, indicator.width);
+    const boxHeight = 16;
+    const labelY = Math.min(Math.max(18, y + 18), overlay.height - 4);
+    ctx.fillStyle = indicator.recognized ? 'rgba(22, 163, 74, 0.85)' : 'rgba(220, 38, 38, 0.85)';
+    ctx.fillRect(x, labelY - boxHeight, Math.max(130, width * 0.6), boxHeight);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(indicator.label, x + 4, labelY - 4);
   });
 
   if (drawingMode === 'entry' && drawingLine) {
@@ -1635,6 +1788,17 @@ const processFrame = async () => {
         const enteredEntryArea = localSettings.entryArea && enteredArea(track, localSettings.entryArea);
         if ((crossedEntryLine || enteredEntryArea) && !track.counted?.entry) {
           track.counted.entry = true;
+          const symbolKey = `${track.id}-entry`;
+          const symbolResult = detectSymbolOnTrack(track, source);
+          upsertSymbolIndicator(symbolKey, track, symbolResult.recognized, symbolResult.similarity);
+          if (symbolResult.checked && symbolResult.recognized && config.symbolDetection.mode === 'exclude') {
+            addLog({
+              time: new Date().toLocaleTimeString(),
+              type: 'Entrada excluída por símbolo',
+              detail: `#${track.id}`
+            });
+            return;
+          }
           const vehicleTicket = track.vehicleTicket || issueVehicleTicket();
           track.vehicleTicket = vehicleTicket;
           rememberActiveVehicleTicket(vehicleTicket);
@@ -1655,6 +1819,18 @@ const processFrame = async () => {
         const duplicateExit = shouldSkipDuplicateExit(track, nowMs);
         if ((crossedExitLine || enteredExitArea) && !track.counted?.exit && !duplicateExit) {
           track.counted.exit = true;
+          const symbolKey = `${track.id}-exit`;
+          const symbolResult = detectSymbolOnTrack(track, source);
+          upsertSymbolIndicator(symbolKey, track, symbolResult.recognized, symbolResult.similarity);
+          if (symbolResult.checked && symbolResult.recognized && config.symbolDetection.mode === 'exclude') {
+            registerExitEvent(track, nowMs);
+            addLog({
+              time: new Date().toLocaleTimeString(),
+              type: 'Saída excluída por símbolo',
+              detail: `#${track.id}`
+            });
+            return;
+          }
           const vehicleTicket = track.vehicleTicket || getNextActiveVehicleTicket() || issueVehicleTicket();
           track.vehicleTicket = vehicleTicket;
           releaseActiveVehicleTicket(vehicleTicket);
@@ -1997,6 +2173,54 @@ priorityAddBtn.addEventListener('click', () => {
   config.priorityVehicles.push(value);
   priorityInput.value = '';
   persistConfig();
+});
+
+symbolDetectionEnabledInput?.addEventListener('change', () => {
+  ensureSymbolDetectionDefaults();
+  config.symbolDetection.enabled = Boolean(symbolDetectionEnabledInput.checked);
+  addLog({
+    time: new Date().toLocaleTimeString(),
+    type: 'Deteção de símbolo',
+    detail: config.symbolDetection.enabled ? 'ativada' : 'desativada'
+  });
+  persistConfig();
+});
+
+symbolDetectionModeSelect?.addEventListener('change', () => {
+  ensureSymbolDetectionDefaults();
+  config.symbolDetection.mode = symbolDetectionModeSelect.value === 'exclude' ? 'exclude' : 'count';
+  addLog({
+    time: new Date().toLocaleTimeString(),
+    type: 'Modo símbolo',
+    detail: config.symbolDetection.mode === 'exclude' ? 'excluir' : 'contar'
+  });
+  persistConfig();
+});
+
+symbolTemplateFileInput?.addEventListener('change', async () => {
+  const file = symbolTemplateFileInput.files?.[0];
+  if (!file) return;
+  const isBmp = file.type === 'image/bmp' || file.name.toLowerCase().endsWith('.bmp');
+  if (!isBmp) {
+    addLog({ time: new Date().toLocaleTimeString(), type: 'Símbolo', detail: 'Ficheiro inválido (use BMP).' });
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const dataUrl = String(reader.result ?? '');
+    const ok = await loadSymbolTemplateFromDataUrl(dataUrl);
+    if (!ok) {
+      addLog({ time: new Date().toLocaleTimeString(), type: 'Símbolo', detail: 'Falha a ler BMP.' });
+      return;
+    }
+    ensureSymbolDetectionDefaults();
+    config.symbolDetection.templateName = file.name;
+    config.symbolDetection.templateDataUrl = dataUrl;
+    if (symbolTemplateNameInput) symbolTemplateNameInput.value = file.name;
+    addLog({ time: new Date().toLocaleTimeString(), type: 'Símbolo carregado', detail: file.name });
+    persistConfig();
+  };
+  reader.readAsDataURL(file);
 });
 
 resolutionSelect.addEventListener('change', async () => {

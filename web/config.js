@@ -32,6 +32,13 @@ export const defaultConfig = {
       previewChannel: 'entry'
     }
   },
+  symbolDetection: {
+    enabled: false,
+    mode: 'count',
+    minSimilarity: 0.78,
+    templateName: '',
+    templateDataUrl: ''
+  },
   capacity: {
     normal: 112
   }

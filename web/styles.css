@@ -243,6 +243,22 @@ canvas,
   min-height: 44px;
 }
 
+.symbol-controls {
+  align-items: flex-end;
+}
+
+.inline-checkbox {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+.inline-checkbox input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+}
+
 
 .hint {
   color: var(--muted);
