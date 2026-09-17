@@ -67,6 +67,7 @@ npm start
 
 ## Contagem e regras
 - Um veículo conta quando o centro da bounding box cruza a linha.
+- O botão **Mutar som** permite desativar e voltar a ativar os avisos sonoros de passagem; a preferência fica guardada.
 - Se o movimento principal for **da esquerda para a direita**, o crossing é ignorado.
 - Só conta 1 vez por track e por linha.
 - Ocupação = Entradas - Saídas - Prioritárias (ajustes manuais).

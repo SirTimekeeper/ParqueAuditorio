@@ -176,6 +176,16 @@ canvas,
   color: var(--text);
 }
 
+.controls button.sound-toggle {
+  min-width: 132px;
+}
+
+.controls button.sound-toggle.is-muted {
+  border-color: #f0b7b7;
+  background: #fff5f5;
+  color: #a52a2a;
+}
+
 .controls.secondary {
   align-items: center;
   gap: 1rem;

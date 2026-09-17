@@ -1,4 +1,4 @@
-const CACHE_NAME = 'parque-auditorio-v1';
+const CACHE_NAME = 'parque-auditorio-v2';
 const ASSETS = [
   '/',
   '/index.html',
