@@ -41,6 +41,9 @@ export const defaultConfig = {
   },
   capacity: {
     normal: 112
+  },
+  sound: {
+    enabled: true
   }
 };
 

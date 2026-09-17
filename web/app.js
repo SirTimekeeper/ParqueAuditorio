@@ -42,6 +42,7 @@ const setExitAreaBtn = document.getElementById('setExitArea');
 const toggleFullscreenBtn = document.getElementById('toggleFullscreen');
 const startPreviewBtn = document.getElementById('startPreview');
 const toggleCountingBtn = document.getElementById('toggleCounting');
+const toggleSoundBtn = document.getElementById('toggleSound');
 const resetCountsBtn = document.getElementById('resetCounts');
 const manualEntriesInput = document.getElementById('manualEntriesInput');
 const manualExitsInput = document.getElementById('manualExitsInput');
@@ -193,6 +194,7 @@ const ensureAudioContext = () => {
 };
 
 const playEventSound = (type) => {
+  if (!config.sound?.enabled) return;
   const ctx = ensureAudioContext();
   if (!ctx) return;
   const now = ctx.currentTime;
@@ -212,6 +214,21 @@ const playEventSound = (type) => {
     osc.start(startAt);
     osc.stop(endAt);
   });
+};
+
+const ensureSoundDefaults = () => {
+  config.sound = {
+    enabled: config.sound?.enabled !== false
+  };
+};
+
+const updateSoundButton = () => {
+  if (!toggleSoundBtn) return;
+  const soundEnabled = config.sound?.enabled !== false;
+  toggleSoundBtn.textContent = soundEnabled ? '🔊 Mutar som' : '🔇 Ativar som';
+  toggleSoundBtn.setAttribute('aria-pressed', String(soundEnabled));
+  toggleSoundBtn.setAttribute('aria-label', `Sons de passagem ${soundEnabled ? 'ativados' : 'desativados'}`);
+  toggleSoundBtn.classList.toggle('is-muted', !soundEnabled);
 };
 
 const ensureCountDefaults = () => {
@@ -846,6 +863,8 @@ const applyConfig = (loaded) => {
   loadSymbolTemplateFromDataUrl(config.symbolDetection.templateDataUrl);
   ensureCountDefaults();
   ensureCapacityDefaults();
+  ensureSoundDefaults();
+  updateSoundButton();
   persistConfig();
 };
 
@@ -2123,6 +2142,14 @@ if (toggleFullscreenBtn) {
 }
 
 toggleCountingBtn.addEventListener('click', toggleCounting);
+
+toggleSoundBtn?.addEventListener('click', () => {
+  ensureSoundDefaults();
+  config.sound.enabled = !config.sound.enabled;
+  if (config.sound.enabled) ensureAudioContext();
+  updateSoundButton();
+  persistConfig();
+});
 
 if (startPreviewBtn) {
   startPreviewBtn.addEventListener('click', async () => {
